@@ -1,6 +1,7 @@
 import streamlit as st
 import ui
 import processing
+import io  # <-- This is the line we are adding
 
 def main():
     """
@@ -12,36 +13,39 @@ def main():
         initial_sidebar_state="expanded"
     )
 
-    # In Streamlit, the script runs top-to-bottom on every interaction.
-    # We get the state of the UI widgets first.
     uploaded_files = ui.render_sidebar()
-    ui.render_main_view() # This just draws the static welcome message for now
+    ui.render_main_view()
 
-    # Now, we check if the user has taken an action, e.g., uploaded files.
     if uploaded_files:
-        st.header("File Header Verification")
-        st.write("Parsing the header of each uploaded file...")
-
-        # Process each file individually and show its header info
+        st.header("File Processing Results")
+        
+        # We will process and display one file at a time for clarity
         for file in uploaded_files:
-            parameter, animal_ids, data_start_line = processing.parse_clams_header(file)
-
-            with st.expander(f"**File:** `{file.name}`"):
-                if parameter:
-                    st.success(f"**Parameter:** {parameter}")
+            # Use a fresh copy of the file for each processing step
+            file_copy = file.getvalue()
+            
+            with st.expander(f"**File:** `{file.name}`", expanded=True):
+                # --- Step 1: Parse Header ---
+                st.subheader("1. Header Parsing")
+                parameter, animal_ids, data_start_line = processing.parse_clams_header(io.BytesIO(file_copy))
+                
+                if parameter and animal_ids and data_start_line != -1:
+                    st.success(f"**Parameter:** {parameter} | **Animals Found:** {len(animal_ids)} | **Data Starts at Line:** {data_start_line}")
                 else:
-                    st.error("Could not identify the parameter from the header.")
+                    st.error("Header parsing failed. Cannot proceed with this file.")
+                    continue # Skip to the next file
 
-                if animal_ids:
-                    st.success(f"**Animals Found:** {len(animal_ids)}")
-                    st.json(animal_ids)
-                else:
-                    st.error("Could not find animal IDs.")
+                # --- Step 2: Parse Data Section ---
+                st.subheader("2. Data Parsing & Transformation")
+                df_tidy = processing.parse_clams_data(io.BytesIO(file_copy), data_start_line, animal_ids)
 
-                if data_start_line != -1:
-                    st.success(f"Data section starts on line **{data_start_line}**.")
+                if df_tidy is not None and not df_tidy.empty:
+                    st.success(f"Successfully parsed and transformed data! Found **{len(df_tidy)}** valid data points.")
+                    st.write("Here is a preview of the tidy data:")
+                    st.dataframe(df_tidy.head())
+                    st.write(f"**DataFrame Dimensions:** {df_tidy.shape[0]} rows × {df_tidy.shape[1]} columns")
                 else:
-                    st.error("Could not find the ':DATA' marker.")
+                    st.error("Failed to parse the data section of the file.")
 
 if __name__ == "__main__":
     main()
