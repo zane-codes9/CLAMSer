@@ -1,7 +1,10 @@
+# app.py
+
 import streamlit as st
+import pandas as pd
 import ui
 import processing
-import io  # <-- This is the line we are adding
+import io
 
 def main():
     """
@@ -13,39 +16,89 @@ def main():
         initial_sidebar_state="expanded"
     )
 
-    uploaded_files = ui.render_sidebar()
-    ui.render_main_view()
+    # Master dictionary to hold all data and settings
+    clams_data = {}
 
+    # --- Sidebar ---
+    with st.sidebar:
+        st.title("🧬 CLAMSer v1.0")
+        st.header("File Upload")
+
+        # The one and only file uploader widget
+        uploaded_files = st.file_uploader(
+            "Upload CLAMS Data Files",
+            accept_multiple_files=True,
+            type=['csv', 'txt'],
+            key="main_file_uploader" # A unique key to prevent errors
+        )
+        st.markdown("---")
+
+    # --- Main Application Logic ---
     if uploaded_files:
-        st.header("File Processing Results")
+        # If files are uploaded, process them and show analysis controls
+        param_options = []
         
-        # We will process and display one file at a time for clarity
+        # Store all parsed dataframes in dictionary, keyed by parameter
+        parsed_dataframes = {}
+
         for file in uploaded_files:
-            # Use a fresh copy of the file for each processing step
-            file_copy = file.getvalue()
+            parameter, animal_ids, data_start_line = processing.parse_clams_header(io.BytesIO(file.getvalue()))
+            if parameter and parameter not in param_options:
+                param_options.append(parameter)
+                df_tidy = processing.parse_clams_data(io.BytesIO(file.getvalue()), data_start_line, animal_ids)
+                if df_tidy is not None:
+                    parsed_dataframes[parameter] = df_tidy
+
+        with st.sidebar:
+            st.header("Analysis Controls")
+            analysis_settings = ui.render_analysis_controls(param_options)
+
+        # --- Display Results in Main View ---
+        st.header("Analysis Results")
+        selected_param = analysis_settings.get("selected_parameter")
+
+        # Display settings being used
+        st.subheader("1. Active Settings")
+        with st.expander("Click to view the settings dictionary", expanded=False):
+            st.json(analysis_settings)
+
+        if selected_param and selected_param in parsed_dataframes:
+            # Retrieve correct base dataframe
+            base_df = parsed_dataframes[selected_param]
+
+            # --- Apply Filtering and Annotation ---
+            st.subheader(f"2. Filtered Data for: {selected_param}")
             
-            with st.expander(f"**File:** `{file.name}`", expanded=True):
-                # --- Step 1: Parse Header ---
-                st.subheader("1. Header Parsing")
-                parameter, animal_ids, data_start_line = processing.parse_clams_header(io.BytesIO(file_copy))
+            # Step 1: Filter by time window
+            df_filtered = processing.filter_data_by_time(
+                base_df,
+                analysis_settings["time_window_option"],
+                analysis_settings["custom_start"],
+                analysis_settings["custom_end"]
+            )
+
+            # Step 2: Annotate with light/dark cycle
+            df_processed = processing.add_light_dark_cycle_info(
+                df_filtered,
+                analysis_settings["light_start"],
+                analysis_settings["light_end"]
+            )
+            
+            if not df_processed.empty:
+                st.write(f"Showing data for the **'{analysis_settings['time_window_option']}'** time window.")
+                st.write(f"Data points remaining after filtering: **{len(df_processed)}** (out of {len(base_df)} total)")
                 
-                if parameter and animal_ids and data_start_line != -1:
-                    st.success(f"**Parameter:** {parameter} | **Animals Found:** {len(animal_ids)} | **Data Starts at Line:** {data_start_line}")
-                else:
-                    st.error("Header parsing failed. Cannot proceed with this file.")
-                    continue # Skip to the next file
+                st.dataframe(df_processed.head())
+            else:
+                st.warning("No data remains after applying the selected time filter. Please select a different time window.")
 
-                # --- Step 2: Parse Data Section ---
-                st.subheader("2. Data Parsing & Transformation")
-                df_tidy = processing.parse_clams_data(io.BytesIO(file_copy), data_start_line, animal_ids)
+        else:
+            st.warning("Please select a valid parameter to begin analysis.")
 
-                if df_tidy is not None and not df_tidy.empty:
-                    st.success(f"Successfully parsed and transformed data! Found **{len(df_tidy)}** valid data points.")
-                    st.write("Here is a preview of the tidy data:")
-                    st.dataframe(df_tidy.head())
-                    st.write(f"**DataFrame Dimensions:** {df_tidy.shape[0]} rows × {df_tidy.shape[1]} columns")
-                else:
-                    st.error("Failed to parse the data section of the file.")
+    else:
+        # If no files are uploaded, show welcome
+        ui.render_main_view()
+
 
 if __name__ == "__main__":
     main()
