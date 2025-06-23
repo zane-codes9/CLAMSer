@@ -83,3 +83,49 @@ def create_timeline_chart(df, light_start, light_end, parameter_name):
     )
 
     return fig
+
+
+# --- NEW FUNCTION ---
+def create_summary_bar_chart(df, parameter_name):
+    """
+    Generates a grouped bar chart of Light vs. Dark averages for each group.
+    Includes error bars for Standard Error of the Mean (SEM).
+
+    Args:
+        df (pd.DataFrame): The summary statistics dataframe per group, 
+                           must contain 'group', 'period', 'mean', and 'sem'.
+        parameter_name (str): The name of the parameter being plotted.
+
+    Returns:
+        A Plotly Figure object.
+    """
+    if df.empty or not all(col in df.columns for col in ['group', 'period', 'mean', 'sem']):
+        fig = px.bar(title="Not enough data to generate summary bar chart.")
+        return fig
+        
+    fig = px.bar(
+        df,
+        x='group',
+        y='mean',
+        color='period',
+        barmode='group',
+        error_y='sem',  # This adds the error bars
+        title=f"Group Averages for {parameter_name}",
+        labels={
+            "group": "Experimental Group",
+            "mean": f"Average {parameter_name}",
+            "period": "Period"
+        },
+        color_discrete_map={ # Optional: Consistent coloring
+            'Light': 'gold',
+            'Dark': 'navy'
+        }
+    )
+    
+    fig.update_layout(
+        xaxis_title="Experimental Group",
+        yaxis_title=f"Average {parameter_name}",
+        legend_title="Period"
+    )
+    
+    return fig

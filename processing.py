@@ -153,6 +153,53 @@ def parse_clams_data(lines, data_start_line, animal_ids):
     return df_tidy.reset_index(drop=True)
 
 
+# --- NEW UTILITY FUNCTION ---
+def parse_lean_mass_data(lean_mass_input):
+    """
+    Parses lean mass data from either an uploaded file object or a raw text string.
+    Expected format is a two-column CSV-like structure: animal_id, lean_mass.
+    Headers are not expected.
+
+    Args:
+        lean_mass_input: An uploaded file object (e.g., BytesIO) or a raw string from st.text_area.
+
+    Returns:
+        tuple: A tuple containing (lean_mass_map, error_message).
+               - lean_mass_map (dict): A dictionary mapping animal_id (str) to lean_mass (float).
+               - error_message (str or None): A string with an error if parsing fails, else None.
+    """
+    if not lean_mass_input:
+        return {}, None
+
+    try:
+        if isinstance(lean_mass_input, str):
+            source = io.StringIO(lean_mass_input)
+        else: # Assumes it's a file-like object from st.file_uploader
+            source = lean_mass_input
+
+        df = pd.read_csv(
+            source,
+            header=None,
+            names=['animal_id', 'lean_mass'],
+            skipinitialspace=True,
+            dtype={'animal_id': str} # Ensure animal IDs are read as strings
+        )
+
+        # Validate that lean_mass column is numeric
+        df['lean_mass'] = pd.to_numeric(df['lean_mass'], errors='coerce')
+        if df['lean_mass'].isnull().any():
+            return None, "Error: The 'lean_mass' column contains non-numeric values. Please check your data."
+
+        # Convert to dictionary
+        lean_mass_map = df.set_index('animal_id')['lean_mass'].to_dict()
+        # Clean keys by stripping any whitespace
+        lean_mass_map = {str(k).strip(): float(v) for k, v in lean_mass_map.items()}
+        return lean_mass_map, None
+
+    except Exception as e:
+        return None, f"An unexpected error occurred while parsing the lean mass data. Please ensure it is a two-column format (animal_id, mass). Details: {e}"
+
+
 def filter_data_by_time(df, time_window_option, custom_start, custom_end):
     """Filters the dataframe based on the selected time window."""
     if not isinstance(df, pd.DataFrame) or 'timestamp' not in df.columns:
@@ -240,3 +287,62 @@ def add_group_info(df, group_assignments):
     df_copy['group'] = df_copy['animal_id'].astype(str).str.strip().map(animal_to_group_map).fillna('Unassigned')
     
     return df_copy
+
+def calculate_summary_stats_per_animal(df):
+    """
+    Calculates summary statistics (Light, Dark, Total averages) for each animal.
+    This is for the main data table display.
+    """
+    # This function is the same as the old `calculate_summary_stats`
+    if df.empty or 'value' not in df.columns or 'period' not in df.columns:
+        return pd.DataFrame()
+
+    total_avg = df.groupby(['animal_id', 'group'])['value'].mean().reset_index()
+    total_avg.rename(columns={'value': 'Total_Average'}, inplace=True)
+
+    period_avg = df.pivot_table(
+        index=['animal_id', 'group'],
+        columns='period',
+        values='value',
+        aggfunc='mean'
+    ).reset_index()
+    period_avg.columns.name = None
+
+    summary_df = pd.merge(total_avg, period_avg, on=['animal_id', 'group'], how='left')
+
+    if 'Light' not in summary_df.columns:
+        summary_df['Light'] = pd.NA
+    if 'Dark' not in summary_df.columns:
+        summary_df['Dark'] = pd.NA
+        
+    summary_df.rename(columns={'Light': 'Light_Average', 'Dark': 'Dark_Average'}, inplace=True)
+    
+    final_cols = ['animal_id', 'group', 'Light_Average', 'Dark_Average', 'Total_Average']
+    existing_cols = [col for col in final_cols if col in summary_df.columns]
+    summary_df = summary_df[existing_cols]
+
+    return summary_df.round(4)
+
+
+# --- NEW FUNCTION ---
+def calculate_summary_stats_per_group(df):
+    """
+    Calculates summary statistics (mean, sem, count) for each experimental GROUP.
+    This is specifically for creating the summary bar chart.
+
+    Args:
+        df (pd.DataFrame): The processed dataframe with 'group', 'value', and 'period' columns.
+
+    Returns:
+        pd.DataFrame: A summary dataframe with one row per group/period combination.
+    """
+    if df.empty or 'group' not in df.columns or 'period' not in df.columns:
+        return pd.DataFrame()
+
+    # Use .agg() to calculate mean, standard error of mean (sem), and count (n)
+    group_stats = df.groupby(['group', 'period'])['value'].agg(['mean', 'sem', 'count']).reset_index()
+    
+    # Sort for consistent plotting order
+    group_stats.sort_values(by=['group', 'period'], inplace=True)
+    
+    return group_stats.round(4)
