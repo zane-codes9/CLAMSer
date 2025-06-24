@@ -288,6 +288,53 @@ def add_group_info(df, group_assignments):
     
     return df_copy
 
+# --- NEW FUNCTION ---
+def apply_normalization(df, mode, lean_mass_map):
+    """
+    Applies the selected normalization to the 'value' column of the dataframe.
+
+    Args:
+        df (pd.DataFrame): The data frame with 'animal_id' and 'value' columns.
+        mode (str): The normalization mode ("Absolute Values", "Lean Mass Normalized", etc.).
+        lean_mass_map (dict): A dictionary mapping animal_id to lean mass.
+
+    Returns:
+        pd.DataFrame: The dataframe with the 'value' column normalized.
+    """
+    df_copy = df.copy()
+
+    if mode == "Absolute Values":
+        # `[Sanity Check]` No action needed, return the original data.
+        return df_copy
+    
+    if mode == "Body Weight Normalized":
+        # `[Sanity Check]` This is a placeholder for a future feature.
+        st.warning("Body Weight Normalization is not yet implemented. Showing absolute values.", icon="⚠️")
+        return df_copy
+
+    if mode == "Lean Mass Normalized":
+        if not lean_mass_map:
+            st.error("Lean Mass normalization selected, but no valid lean mass data was provided. Aborting.", icon="🚨")
+            return pd.DataFrame() # Return empty DF to stop further processing
+
+        df_copy['lean_mass'] = df_copy['animal_id'].map(lean_mass_map)
+
+        # `[Sanity Check]` Verify which animals are missing from the lean mass map.
+        missing_animals = df_copy[df_copy['lean_mass'].isnull()]['animal_id'].unique()
+        if len(missing_animals) > 0:
+            st.warning(f"Missing lean mass data for animals: `{', '.join(missing_animals)}`. They will be excluded from the analysis.", icon="⚠️")
+        
+        df_copy.dropna(subset=['lean_mass'], inplace=True)
+        if df_copy.empty:
+             st.error("No animals had corresponding lean mass data. Aborting analysis.", icon="🚨")
+             return pd.DataFrame()
+
+        # Apply the normalization
+        df_copy['value'] = df_copy['value'] / df_copy['lean_mass']
+        return df_copy
+    
+    return df_copy
+
 def calculate_summary_stats_per_animal(df):
     """
     Calculates summary statistics (Light, Dark, Total averages) for each animal.

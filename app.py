@@ -8,16 +8,12 @@ import plotting
 import io
 
 def main():
-    """
-    Main function to run the Streamlit application.
-    """
+    # ... (Page config and file upload blocks are unchanged) ...
     st.set_page_config(
         page_title="CLAMSer v1.0",
         layout="wide",
         initial_sidebar_state="expanded"
     )
-
-    # --- Sidebar ---
     with st.sidebar:
         st.title("🧬 CLAMSer v1.0")
         st.header("File Upload")
@@ -29,13 +25,9 @@ def main():
             on_change=lambda: st.session_state.update(data_loaded=False)
         )
         st.markdown("---")
-
-    # --- Main Application Logic ---
     if not uploaded_files:
         ui.render_main_view()
         return
-
-    # --- Data Loading and Preparation ---
     if not st.session_state.get('data_loaded', False):
         st.session_state.parsed_data = {}
         st.session_state.param_options = []
@@ -71,22 +63,22 @@ def main():
     if not st.session_state.get('data_loaded', False) or not st.session_state.get('param_options'):
         st.warning("Please upload valid CLAMS data files.")
         return
-
-    # --- Sidebar Controls ---
-    # ... (This block is unchanged)
     with st.sidebar:
         st.header("Analysis Controls")
         analysis_settings = ui.render_analysis_controls(st.session_state.param_options)
 
-    # --- MAIN VIEW WORKSPACE ---
+    # --- REFACTORED MAIN WORKSPACE ---
     st.header("Analysis Workspace")
 
-    ui.render_setup_expander(st.session_state.animal_ids)
-    st.markdown("---")
+    with st.expander("Step 1: Setup Groups & Lean Mass", expanded=True):
+        # Call the UI component and store its current state in a variable.
+        current_ui_groups = ui.render_group_assignment_ui(st.session_state.animal_ids)
+        st.markdown("---")
+        ui.render_lean_mass_ui()
 
+    st.markdown("---")
     st.header("Step 2: Configure & Generate Results")
 
-    # --- NEW: NORMALIZATION SELECTOR ---
     normalization_mode = st.radio(
         "Select Normalization Mode",
         options=["Absolute Values", "Body Weight Normalized", "Lean Mass Normalized"],
@@ -100,84 +92,61 @@ def main():
             st.warning("Please provide lean mass data in the 'Setup' section above to use this mode.", icon="⚠️")
 
     if st.button("Process & Analyze Data", type="primary"):
+        # --- KEY CHANGE: Capture UI state ON CLICK ---
         st.session_state.analysis_triggered = True
-        
-        # --- PARSE LEAN MASS DATA ON CLICK ---
+        st.session_state.group_assignments = current_ui_groups
+
+        # Parse lean mass data (this logic remains the same)
         lean_mass_input = None
         if st.session_state.lean_mass_input_method == "File Upload":
             lean_mass_input = st.session_state.get('lean_mass_uploader')
-        else: # Manual Entry
+        else:
             lean_mass_input = st.session_state.get('lean_mass_manual_text', '').strip()
-
         if lean_mass_input:
             parsed_map, error_msg = processing.parse_lean_mass_data(lean_mass_input)
             if error_msg:
                 st.error(f"Lean Mass Data Error: {error_msg}")
-                st.session_state.lean_mass_map = {} # Clear previous data on error
+                st.session_state.lean_mass_map = {}
             else:
                 st.session_state.lean_mass_map = parsed_map
         else:
             st.session_state.lean_mass_map = {}
-
-    # --- RESULTS DISPLAY ---
+    
+    # --- Results Display (Unchanged) ---
     if st.session_state.get('analysis_triggered', False):
         st.header("Analysis Results")
         selected_param = analysis_settings.get("selected_parameter")
-
-        with st.expander("Click to view the settings for this analysis"):
+        with st.expander("`[Sanity Check]` Click to view the settings for this analysis"):
             st.write("**Analysis Controls:**", analysis_settings)
-            st.write("**Group Assignments:**", st.session_state.get('group_assignments', {}))
-            
-            # --- NEW SANITY CHECKS ---
-            st.markdown("`[Sanity Check]` **Selected Normalization Mode:**")
-            st.write(st.session_state.get('normalization_mode'))
-            st.markdown("`[Sanity Check]` **Parsed Lean Mass Data:**")
-            st.json(st.session_state.get('lean_mass_map', {}))
-            # --- END SANITY CHECKS ---
-
-        # The rest of the processing pipeline remains the same for now
+            st.write("**Group Assignments (Captured on Process):**", st.session_state.get('group_assignments', {}))
+            st.write("**Parsed Lean Mass Data:**", st.session_state.get('lean_mass_map', {}))
+        
         if selected_param and selected_param in st.session_state.parsed_data:
-            base_df = st.session_state.parsed_data[selected_param]
-
-            df_filtered = processing.filter_data_by_time(
-                base_df,
-                analysis_settings["time_window_option"],
-                analysis_settings["custom_start"],
-                analysis_settings["custom_end"]
-            )
-            df_processed = processing.add_light_dark_cycle_info(
-                df_filtered,
-                analysis_settings["light_start"],
-                analysis_settings["light_end"]
-            )
-            df_with_groups = processing.add_group_info(
-                df_processed, 
-                st.session_state.get('group_assignments', {})
-            )
+            base_df = st.session_state.parsed_data[selected_param].copy()
+            df_filtered = processing.filter_data_by_time(base_df, analysis_settings["time_window_option"], analysis_settings["custom_start"], analysis_settings["custom_end"])
+            df_processed = processing.add_light_dark_cycle_info(df_filtered, analysis_settings["light_start"], analysis_settings["light_end"])
             
-            if not df_with_groups.empty:
+            # This now uses the correctly captured group assignments
+            df_with_groups = processing.add_group_info(df_processed, st.session_state.get('group_assignments', {}))
+            
+            df_normalized = processing.apply_normalization(df_with_groups, normalization_mode, st.session_state.get('lean_mass_map', {}))
+            
+            if not df_normalized.empty:
+                with st.expander("`[Sanity Check]` Data Preview Post-Normalization"):
+                    st.write(f"Data after applying **{normalization_mode}**.")
+                    st.dataframe(df_normalized.head())
                 st.subheader(f"1. Summary Bar Chart for: {selected_param}")
-                group_summary_df = processing.calculate_summary_stats_per_group(df_with_groups)
+                group_summary_df = processing.calculate_summary_stats_per_group(df_normalized)
                 bar_chart_fig = plotting.create_summary_bar_chart(group_summary_df, selected_param)
                 st.plotly_chart(bar_chart_fig, use_container_width=True)
-
                 st.subheader(f"2. Interactive Timeline for: {selected_param}")
-                timeline_fig = plotting.create_timeline_chart(
-                    df_with_groups,
-                    analysis_settings['light_start'],
-                    analysis_settings['light_end'],
-                    selected_param
-                )
+                timeline_fig = plotting.create_timeline_chart(df_normalized, analysis_settings['light_start'], analysis_settings['light_end'], selected_param)
                 st.plotly_chart(timeline_fig, use_container_width=True)
-
                 st.subheader("3. Summary Data Table (per Animal)")
-                summary_df_animal = processing.calculate_summary_stats_per_animal(df_with_groups)
+                summary_df_animal = processing.calculate_summary_stats_per_animal(df_normalized)
                 st.dataframe(summary_df_animal, use_container_width=True)
-
-                with st.expander("Show Raw Data Preview"):
-                    st.dataframe(df_with_groups.head(10))
             else:
-                st.warning("No data remains after applying the selected time filter.")
+                st.warning("No data remains after applying the selected filters and normalization. Please check your settings, especially the Lean Mass data.")
         else:
             st.warning("A valid parameter must be selected to display results.")
 

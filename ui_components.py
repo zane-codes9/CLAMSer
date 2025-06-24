@@ -3,6 +3,7 @@
 import streamlit as st
 import pandas as pd
 
+# render_analysis_controls and render_main_view are unchanged...
 def render_analysis_controls(param_options):
     """
     Renders the analysis controls that appear AFTER files are uploaded.
@@ -39,90 +40,99 @@ def render_analysis_controls(param_options):
         "light_end": light_end,
     }
 
-
 def render_main_view():
     """Renders the main content area of the application."""
     st.header("CLAMSer")
     st.write("Start by uploading your CLAMS data files using the sidebar.")
     st.info("Once files are uploaded, configure your analysis using the controls on the left.")
 
+# --- REMOVED render_setup_expander ---
 
-def render_setup_expander(all_animal_ids):
+# --- NEW FUNCTION 1: Group Assignment UI ---
+def render_group_assignment_ui(all_animal_ids):
     """
-    Renders the UI for group assignment AND lean mass input.
+    Renders the UI for group assignment and returns the current selections.
+    This is a stateless component; it does not use or set st.session_state.
+
+    Args:
+        all_animal_ids (list): A list of all unique animal IDs found in the data.
+
+    Returns:
+        dict: A dictionary representing the current group assignments in the UI.
     """
-    # Initialize session state keys
-    if 'group_assignments' not in st.session_state:
-        st.session_state.group_assignments = {}
+    st.subheader("A. Group Assignment")
+
     if 'num_groups' not in st.session_state:
         st.session_state.num_groups = 1
+        
+    num_groups = st.number_input("Number of Groups", min_value=1, key="num_groups", step=1)
+    
+    current_ui_assignments = {}
+    cols = st.columns(num_groups)
+
+    # Use existing session state for defaults if it exists, otherwise empty
+    previous_assignments = st.session_state.get('group_assignments', {})
+    
+    all_assigned_in_state = {
+        animal for members in previous_assignments.values() for animal in members
+    }
+
+    for i in range(num_groups):
+        with cols[i]:
+            # Get default name and members from previous state
+            group_keys = list(previous_assignments.keys())
+            default_name = group_keys[i] if i < len(group_keys) else f"Group {i+1}"
+            group_name = st.text_input(f"Group Name", value=default_name, key=f"group_name_{i}")
+
+            members_of_this_group = previous_assignments.get(default_name, [])
+            
+            unassigned_animals = [animal for animal in all_animal_ids if animal not in all_assigned_in_state]
+            selectable_options = sorted(list(set(members_of_this_group + unassigned_animals)))
+
+            selections = st.multiselect(
+                f"Select Animals for {group_name}",
+                options=selectable_options,
+                default=members_of_this_group,
+                key=f"ms_{i}"
+            )
+            if group_name.strip():
+                current_ui_assignments[group_name.strip()] = selections
+
+    return current_ui_assignments
+
+# --- NEW FUNCTION 2: Lean Mass UI ---
+def render_lean_mass_ui():
+    """
+    Renders the UI for lean mass input.
+    Relies on session_state for its values.
+    """
+    st.subheader("B. Lean Mass Input (Optional)")
+    st.write("Provide lean mass data if you plan to use 'Lean Mass Normalized' mode.")
+
     if 'lean_mass_input_method' not in st.session_state:
         st.session_state.lean_mass_input_method = "File Upload"
 
-    with st.expander("Step 1: Setup Groups & Lean Mass", expanded=True):
-        # --- A. Group Assignment ---
-        st.subheader("A. Group Assignment")
-        num_groups = st.number_input("Number of Groups", min_value=1, value=st.session_state.num_groups, step=1)
-        cols = st.columns(num_groups)
-        temp_assignments = {}
-        all_assigned_animals_map = {
-            animal: group_name
-            for group_name, animals in st.session_state.group_assignments.items()
-            for animal in animals
-        }
-        for i in range(num_groups):
-            with cols[i]:
-                group_keys = list(st.session_state.group_assignments.keys())
-                default_name = group_keys[i] if i < len(group_keys) else f"Group {i+1}"
-                group_name = st.text_input("Group Name", value=default_name, key=f"group_name_{i}")
-                members_of_this_group = st.session_state.group_assignments.get(default_name, [])
-                selectable_options = members_of_this_group + [
-                    animal for animal in all_animal_ids if animal not in all_assigned_animals_map
-                ]
-                selections = st.multiselect(
-                    f"Select Animals for {group_name}",
-                    options=sorted(list(set(selectable_options))),
-                    default=members_of_this_group,
-                    key=f"ms_{i}"
-                )
-                if group_name:
-                    temp_assignments[group_name] = selections
-        if st.button("Save Group Assignments"):
-            st.session_state.num_groups = num_groups
-            st.session_state.group_assignments = temp_assignments
-            st.success("Group assignments saved!")
-            st.rerun()
+    st.radio(
+        "Lean Mass Input Method",
+        options=["File Upload", "Manual Entry"],
+        key='lean_mass_input_method',
+        horizontal=True
+    )
 
-        st.markdown("---")
-
-        # --- B. Lean Mass Input (Optional) ---
-        st.subheader("B. Lean Mass Input (Optional)")
-        st.write("Provide lean mass data if you plan to use 'Lean Mass Normalized' mode.")
-
-        # Let user choose input method
-        st.radio(
-            "Lean Mass Input Method",
-            options=["File Upload", "Manual Entry"],
-            key='lean_mass_input_method',
-            horizontal=True
+    if st.session_state.lean_mass_input_method == "File Upload":
+        st.file_uploader(
+            "Upload Lean Mass CSV", type=['csv', 'txt'], key='lean_mass_uploader'
         )
-
-        if st.session_state.lean_mass_input_method == "File Upload":
-            st.file_uploader(
-                "Upload Lean Mass CSV",
-                type=['csv', 'txt'],
-                key='lean_mass_uploader' # This key will hold the uploaded file
-            )
-            with st.expander("CSV Format Instructions"):
-                st.markdown("""
-                - The file must be a CSV with two columns: `animal_id`, `lean_mass` (in grams).
-                - **Do not include a header row.**
-                """)
-                st.code("456,20.1\n457,21.5\n458,19.8", language="text")
-        else: # Manual Entry
-            st.text_area(
-                "Paste data here (e.g., 'animal_id,lean_mass')",
-                key='lean_mass_manual_text', # This key will hold the text
-                help="Paste two columns from a spreadsheet, or type 'animal_id,mass' on each line.",
-                height=150
-            )
+        st.caption("CSV Format Instructions")
+        st.markdown(
+            "- The file must be a CSV with two columns: `animal_id`, `lean_mass` (in grams).\n"
+            "- **Do not include a header row.**"
+        )
+        st.code("456,20.1\n457,21.5\n458,19.8", language="text")
+    else: # Manual Entry
+        st.text_area(
+            "Paste data here (e.g., 'animal_id,lean_mass')",
+            key='lean_mass_manual_text',
+            help="Paste two columns from a spreadsheet, or type 'animal_id,mass' on each line.",
+            height=150
+        )
