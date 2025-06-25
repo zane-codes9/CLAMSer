@@ -8,7 +8,6 @@ import plotting
 import io
 
 def main():
-    # ... (Page config and file upload blocks are unchanged) ...
     st.set_page_config(
         page_title="CLAMSer v1.0",
         layout="wide",
@@ -71,7 +70,6 @@ def main():
     st.header("Analysis Workspace")
 
     with st.expander("Step 1: Setup Groups & Lean Mass", expanded=True):
-        # Call the UI component and store its current state in a variable.
         current_ui_groups = ui.render_group_assignment_ui(st.session_state.animal_ids)
         st.markdown("---")
         ui.render_lean_mass_ui()
@@ -92,11 +90,9 @@ def main():
             st.warning("Please provide lean mass data in the 'Setup' section above to use this mode.", icon="⚠️")
 
     if st.button("Process & Analyze Data", type="primary"):
-        # --- KEY CHANGE: Capture UI state ON CLICK ---
         st.session_state.analysis_triggered = True
         st.session_state.group_assignments = current_ui_groups
 
-        # Parse lean mass data (this logic remains the same)
         lean_mass_input = None
         if st.session_state.lean_mass_input_method == "File Upload":
             lean_mass_input = st.session_state.get('lean_mass_uploader')
@@ -112,39 +108,60 @@ def main():
         else:
             st.session_state.lean_mass_map = {}
     
-    # --- Results Display (Unchanged) ---
+# --- Results Display (MODIFIED to add export and remove final sanity checks) ---
     if st.session_state.get('analysis_triggered', False):
         st.header("Analysis Results")
         selected_param = analysis_settings.get("selected_parameter")
-        with st.expander("`[Sanity Check]` Click to view the settings for this analysis"):
-            st.write("**Analysis Controls:**", analysis_settings)
-            st.write("**Group Assignments (Captured on Process):**", st.session_state.get('group_assignments', {}))
-            st.write("**Parsed Lean Mass Data:**", st.session_state.get('lean_mass_map', {}))
         
         if selected_param and selected_param in st.session_state.parsed_data:
             base_df = st.session_state.parsed_data[selected_param].copy()
             df_filtered = processing.filter_data_by_time(base_df, analysis_settings["time_window_option"], analysis_settings["custom_start"], analysis_settings["custom_end"])
             df_processed = processing.add_light_dark_cycle_info(df_filtered, analysis_settings["light_start"], analysis_settings["light_end"])
-            
-            # This now uses the correctly captured group assignments
             df_with_groups = processing.add_group_info(df_processed, st.session_state.get('group_assignments', {}))
             
-            df_normalized = processing.apply_normalization(df_with_groups, normalization_mode, st.session_state.get('lean_mass_map', {}))
+            df_normalized, _ = processing.apply_normalization(df_with_groups, normalization_mode, st.session_state.get('lean_mass_map', {}))
             
             if not df_normalized.empty:
-                with st.expander("`[Sanity Check]` Data Preview Post-Normalization"):
-                    st.write(f"Data after applying **{normalization_mode}**.")
-                    st.dataframe(df_normalized.head())
-                st.subheader(f"1. Summary Bar Chart for: {selected_param}")
+                # --- User Notification Logic (Unchanged) ---
+                user_defined_groups = set(st.session_state.get('group_assignments', {}).keys())
+                user_defined_groups = {g for g in user_defined_groups if g} 
+                groups_in_final_data = set(df_normalized['group'].unique())
+                excluded_groups = user_defined_groups - groups_in_final_data
+                
+                if excluded_groups:
+                    st.info(
+                        f"**Note:** The following group(s) are not shown in the results below: **{', '.join(sorted(list(excluded_groups)))}**. "
+                        "This is because no animals from these groups remained after applying the current filters (e.g., 'Lean Mass Normalized' mode requires all animals in a group to have lean mass data).",
+                        icon="ℹ️"
+                    )
+
+                # --- NOTE: Sanity Check Expanders have been REMOVED for final UI ---
+
+                # --- 1. VISUALIZATIONS ---
+                st.subheader(f"Group Averages for {selected_param}")
                 group_summary_df = processing.calculate_summary_stats_per_group(df_normalized)
                 bar_chart_fig = plotting.create_summary_bar_chart(group_summary_df, selected_param)
                 st.plotly_chart(bar_chart_fig, use_container_width=True)
-                st.subheader(f"2. Interactive Timeline for: {selected_param}")
+
+                st.subheader(f"Interactive Timeline for {selected_param}")
                 timeline_fig = plotting.create_timeline_chart(df_normalized, analysis_settings['light_start'], analysis_settings['light_end'], selected_param)
                 st.plotly_chart(timeline_fig, use_container_width=True)
-                st.subheader("3. Summary Data Table (per Animal)")
+                
+                st.markdown("---") # Visual separator
+
+                # --- 2. DATA TABLE & EXPORT ---
+                st.subheader("Summary Data Table (per Animal)")
                 summary_df_animal = processing.calculate_summary_stats_per_animal(df_normalized)
                 st.dataframe(summary_df_animal, use_container_width=True)
+                
+                # --- NEW: EXPORT BUTTON ---
+                st.download_button(
+                   label="⬇️ Export Summary Data (.csv)",
+                   data=processing.convert_df_to_csv(summary_df_animal),
+                   file_name=f"CLAMSer_Summary_{selected_param}_{normalization_mode.replace(' ', '_')}.csv",
+                   mime='text/csv',
+                )
+                
             else:
                 st.warning("No data remains after applying the selected filters and normalization. Please check your settings, especially the Lean Mass data.")
         else:

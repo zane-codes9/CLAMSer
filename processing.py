@@ -243,19 +243,20 @@ def add_light_dark_cycle_info(df, light_start, light_end):
         
     df_copy = df.copy()
 
-    # Ensure timestamp is datetime before using .dt accessor
     if not pd.api.types.is_datetime64_any_dtype(df_copy['timestamp']):
          df_copy['timestamp'] = pd.to_datetime(df_copy['timestamp'], errors='coerce')
          df_copy.dropna(subset=['timestamp'], inplace=True)
 
     df_copy['hour'] = df_copy['timestamp'].dt.hour
     
+    # --- LOGIC FIX IS HERE ---
     if light_start < light_end:
-        # Standard day cycle (e.g., light starts at 7, ends at 19)
-        df_copy['period'] = df_copy['hour'].apply(lambda h: 'Light' if light_start <= h < light_end else 'Dark')
+        # Standard day cycle. The fix is changing < to <= to include the end hour.
+        df_copy['period'] = df_copy['hour'].apply(lambda h: 'Light' if light_start <= h <= light_end else 'Dark')
     else:
         # Inverted cycle (e.g., light starts at 19, ends at 7)
-        df_copy['period'] = df_copy['hour'].apply(lambda h: 'Dark' if light_end <= h < light_start else 'Light')
+        df_copy['period'] = df_copy['hour'].apply(lambda h: 'Dark' if light_end < h <= light_start else 'Light')
+    # --- END OF LOGIC FIX ---
         
     df_copy = df_copy.drop(columns=['hour'])
     return df_copy
@@ -292,6 +293,7 @@ def add_group_info(df, group_assignments):
 def apply_normalization(df, mode, lean_mass_map):
     """
     Applies the selected normalization to the 'value' column of the dataframe.
+    This function NO LONGER creates Streamlit UI elements.
 
     Args:
         df (pd.DataFrame): The data frame with 'animal_id' and 'value' columns.
@@ -299,41 +301,42 @@ def apply_normalization(df, mode, lean_mass_map):
         lean_mass_map (dict): A dictionary mapping animal_id to lean mass.
 
     Returns:
-        pd.DataFrame: The dataframe with the 'value' column normalized.
+        tuple: A tuple containing (normalized_df, missing_animal_ids).
+               - normalized_df (pd.DataFrame): The dataframe with the 'value' column normalized.
+               - missing_animal_ids (list): A list of animal IDs dropped due to missing data.
     """
     df_copy = df.copy()
+    missing_animal_ids = []
 
     if mode == "Absolute Values":
-        # `[Sanity Check]` No action needed, return the original data.
-        return df_copy
-    
+        return df_copy, missing_animal_ids
+
     if mode == "Body Weight Normalized":
-        # `[Sanity Check]` This is a placeholder for a future feature.
+        # Placeholder for a future feature. For now, it doesn't drop anyone.
         st.warning("Body Weight Normalization is not yet implemented. Showing absolute values.", icon="⚠️")
-        return df_copy
+        return df_copy, missing_animal_ids
 
     if mode == "Lean Mass Normalized":
         if not lean_mass_map:
             st.error("Lean Mass normalization selected, but no valid lean mass data was provided. Aborting.", icon="🚨")
-            return pd.DataFrame() # Return empty DF to stop further processing
+            return pd.DataFrame(), list(df_copy['animal_id'].unique()) # Return all animals as "missing"
 
         df_copy['lean_mass'] = df_copy['animal_id'].map(lean_mass_map)
 
-        # `[Sanity Check]` Verify which animals are missing from the lean mass map.
-        missing_animals = df_copy[df_copy['lean_mass'].isnull()]['animal_id'].unique()
-        if len(missing_animals) > 0:
-            st.warning(f"Missing lean mass data for animals: `{', '.join(missing_animals)}`. They will be excluded from the analysis.", icon="⚠️")
+        # Identify missing animals BEFORE dropping them
+        missing_animals_mask = df_copy['lean_mass'].isnull()
+        missing_animal_ids = df_copy[missing_animals_mask]['animal_id'].unique().tolist()
         
         df_copy.dropna(subset=['lean_mass'], inplace=True)
         if df_copy.empty:
              st.error("No animals had corresponding lean mass data. Aborting analysis.", icon="🚨")
-             return pd.DataFrame()
+             return pd.DataFrame(), missing_animal_ids
 
         # Apply the normalization
         df_copy['value'] = df_copy['value'] / df_copy['lean_mass']
-        return df_copy
+        return df_copy, missing_animal_ids
     
-    return df_copy
+    return df_copy, missing_animal_ids
 
 def calculate_summary_stats_per_animal(df):
     """
@@ -389,7 +392,23 @@ def calculate_summary_stats_per_group(df):
     # Use .agg() to calculate mean, standard error of mean (sem), and count (n)
     group_stats = df.groupby(['group', 'period'])['value'].agg(['mean', 'sem', 'count']).reset_index()
     
+    # --- NEW: Robustness fix for SEM ---
+    group_stats['sem'] = group_stats['sem'].fillna(0)
+    
     # Sort for consistent plotting order
     group_stats.sort_values(by=['group', 'period'], inplace=True)
     
     return group_stats.round(4)
+
+def convert_df_to_csv(df: pd.DataFrame) -> bytes:
+    """
+    Converts a pandas DataFrame to a UTF-8 encoded CSV byte string.
+    The DataFrame index is not included in the output, which is ideal for Prism/SPSS.
+
+    Args:
+        df (pd.DataFrame): The DataFrame to convert.
+
+    Returns:
+        bytes: The CSV data as a byte string.
+    """
+    return df.to_csv(index=False).encode('utf-8')
