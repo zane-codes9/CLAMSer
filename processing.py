@@ -286,7 +286,6 @@ def add_group_info(df, group_assignments):
     df_copy = df.copy()
     # **FIX:** Use the `.str` accessor to apply the strip method to each element in the Series.
     df_copy['group'] = df_copy['animal_id'].astype(str).str.strip().map(animal_to_group_map).fillna('Unassigned')
-    
     return df_copy
 
 # --- NEW FUNCTION ---
@@ -301,25 +300,28 @@ def apply_normalization(df, mode, lean_mass_map):
         lean_mass_map (dict): A dictionary mapping animal_id to lean mass.
 
     Returns:
-        tuple: A tuple containing (normalized_df, missing_animal_ids).
+        tuple: A tuple containing (normalized_df, missing_animal_ids, error_message).
                - normalized_df (pd.DataFrame): The dataframe with the 'value' column normalized.
-               - missing_animal_ids (list): A list of animal IDs dropped due to missing data.
+               - missing_animal_ids (list): IDs dropped due to missing data.
+               - error_message (str or None): A string with an error if one occurred, else None.
     """
     df_copy = df.copy()
     missing_animal_ids = []
+    error_message = None
 
     if mode == "Absolute Values":
-        return df_copy, missing_animal_ids
+        return df_copy, missing_animal_ids, None
 
     if mode == "Body Weight Normalized":
-        # Placeholder for a future feature. For now, it doesn't drop anyone.
-        st.warning("Body Weight Normalization is not yet implemented. Showing absolute values.", icon="⚠️")
-        return df_copy, missing_animal_ids
+        # Placeholder for a future feature.
+        error_message = "Body Weight Normalization is not yet implemented. Showing absolute values."
+        return df_copy, missing_animal_ids, error_message
 
     if mode == "Lean Mass Normalized":
         if not lean_mass_map:
-            st.error("Lean Mass normalization selected, but no valid lean mass data was provided. Aborting.", icon="🚨")
-            return pd.DataFrame(), list(df_copy['animal_id'].unique()) # Return all animals as "missing"
+            error_message = "Lean Mass normalization selected, but no valid lean mass data was provided."
+            # Return all animals as "missing"
+            return pd.DataFrame(), list(df_copy['animal_id'].unique()), error_message
 
         df_copy['lean_mass'] = df_copy['animal_id'].map(lean_mass_map)
 
@@ -329,14 +331,14 @@ def apply_normalization(df, mode, lean_mass_map):
         
         df_copy.dropna(subset=['lean_mass'], inplace=True)
         if df_copy.empty:
-             st.error("No animals had corresponding lean mass data. Aborting analysis.", icon="🚨")
-             return pd.DataFrame(), missing_animal_ids
+             error_message = "No animals had corresponding lean mass data."
+             return pd.DataFrame(), missing_animal_ids, error_message
 
         # Apply the normalization
         df_copy['value'] = df_copy['value'] / df_copy['lean_mass']
-        return df_copy, missing_animal_ids
+        return df_copy, missing_animal_ids, None
     
-    return df_copy, missing_animal_ids
+    return df_copy, missing_animal_ids, None
 
 def calculate_summary_stats_per_animal(df):
     """
@@ -399,6 +401,41 @@ def calculate_summary_stats_per_group(df):
     group_stats.sort_values(by=['group', 'period'], inplace=True)
     
     return group_stats.round(4)
+
+def calculate_key_metrics(df):
+    """
+    Calculates high-level metrics for the entire filtered dataset.
+
+    Args:
+        df (pd.DataFrame): The processed dataframe, after filtering and normalization.
+                           Must contain 'value' and 'period' columns.
+
+    Returns:
+        dict: A dictionary containing the calculated metrics.
+    """
+    if df.empty or 'value' not in df.columns:
+        return {
+            'Overall Average': 'N/A',
+            'Light Average': 'N/A',
+            'Dark Average': 'N/A'
+        }
+
+    overall_avg = df['value'].mean()
+
+    # Calculate period averages only if the period exists in the data
+    light_df = df[df['period'] == 'Light']
+    dark_df = df[df['period'] == 'Dark']
+    
+    light_avg = light_df['value'].mean() if not light_df.empty else None
+    dark_avg = dark_df['value'].mean() if not dark_df.empty else None
+
+    metrics = {
+        'Overall Average': f"{overall_avg:.2f}" if pd.notna(overall_avg) else 'N/A',
+        'Light Average': f"{light_avg:.2f}" if pd.notna(light_avg) else 'N/A',
+        'Dark Average': f"{dark_avg:.2f}" if pd.notna(dark_avg) else 'N/A'
+    }
+    
+    return metrics
 
 def convert_df_to_csv(df: pd.DataFrame) -> bytes:
     """
