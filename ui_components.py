@@ -66,71 +66,98 @@ def render_main_view():
 
 
 # --- START OF CHANGE ---
-# The function no longer contains the expander.
+# Refactored to be a live, reactive component without a form.
+
+def _update_group_assignments_callback():
+    """
+    Callback function to read all group UI widgets and update session_state.
+    This is the core of the new reactive logic.
+    """
+    num_groups = st.session_state.get('num_groups', 1)
+    new_assignments = {}
+    all_assigned_in_new_state = set()
+
+    # First pass to build the new assignment dictionary and check for duplicates
+    for i in range(num_groups):
+        group_name_key = f"group_name_{i}"
+        multiselect_key = f"ms_{i}"
+        group_name = st.session_state.get(group_name_key, f"Group {i+1}").strip()
+        selected_animals = st.session_state.get(multiselect_key, [])
+
+        if group_name:
+            # Check for animals already assigned in this new state
+            for animal in selected_animals:
+                if animal in all_assigned_in_new_state:
+                    # This is a basic way to handle it; more complex UI could show a warning
+                    st.warning(f"Animal '{animal}' cannot be in multiple groups. Reverting some changes.")
+                    # To prevent inconsistent state, we might just return without updating
+                    return
+            
+            new_assignments[group_name] = selected_animals
+            all_assigned_in_new_state.update(selected_animals)
+            
+    st.session_state.group_assignments = new_assignments
+    st.toast("Group assignments updated!", icon="👍")
+
+
 def render_group_assignment_ui(all_animal_ids):
     """
-    Renders the UI for group assignment, preventing duplicate assignments.
-    This version uses st.form for a better user experience.
+    Renders a live, reactive UI for group assignment.
+    Changes are captured instantly via callbacks, no 'Update' button needed.
     """
     st.subheader("A. Group Assignment")
-    
-    # Initialize session state for the number of groups if it doesn't exist.
-    if 'num_groups' not in st.session_state:
-        st.session_state.num_groups = 1
-    # Initialize session state for group assignments if it doesn't exist.
-    if 'group_assignments' not in st.session_state:
-        st.session_state.group_assignments = {}
 
-    # We need to manage group names and selections inside the form logic
-    with st.form(key='group_form'):
-        st.session_state.num_groups = st.number_input(
-            "Number of Groups", 
-            min_value=1, 
-            value=st.session_state.num_groups, 
-            step=1
-        )
-        
-        cols = st.columns(st.session_state.num_groups)
-        
-        # Temp dict to hold UI state before form submission
-        ui_assignments = {}
-        
-        # Get all animals already assigned in the current state
-        all_assigned_animals = {animal for members in st.session_state.group_assignments.values() for animal in members}
+    if 'num_groups' not in st.session_state: st.session_state.num_groups = 1
+    if 'group_assignments' not in st.session_state: st.session_state.group_assignments = {}
 
-        for i in range(st.session_state.num_groups):
-            with cols[i]:
-                # Preserve existing group name or create a new one
-                group_names = list(st.session_state.group_assignments.keys())
-                group_name = st.text_input("Group Name", value=group_names[i] if i < len(group_names) else f"Group {i+1}", key=f"group_name_{i}")
-                
-                current_group_members = st.session_state.group_assignments.get(group_names[i] if i < len(group_names) else group_name, [])
-                
-                # Available animals are those not assigned to OTHER groups
-                other_assigned_animals = all_assigned_animals - set(current_group_members)
-                available_options = [aid for aid in all_animal_ids if aid not in other_assigned_animals]
-                
-                selected_animals = st.multiselect(
-                    f"Select Animals for {group_name}",
-                    options=sorted(available_options),
-                    default=current_group_members,
-                    key=f"ms_{i}"
-                )
-                
-                if group_name.strip():
-                    ui_assignments[group_name.strip()] = selected_animals
-        
-        submitted = st.form_submit_button("Update Groups")
-        if submitted:
-            # On submission, update the main session state with the form's state
-            st.session_state.group_assignments = {k: v for k, v in ui_assignments.items() if k}
-            st.toast("Group assignments updated!", icon="👍")
-            # We don't need to return anything because we modify state directly
-    
-    # Return the currently stored group assignments
-    return st.session_state.get('group_assignments', {})
+    st.number_input(
+        "Number of Groups",
+        min_value=1,
+        step=1,
+        key='num_groups',
+        on_change=_update_group_assignments_callback # This will trigger a re-build when number changes
+    )
+
+    num_groups = st.session_state.get('num_groups', 1)
+    cols = st.columns(num_groups)
+
+    # Get a snapshot of all animals assigned right now
+    all_assigned_animals = {animal for members in st.session_state.group_assignments.values() for animal in members}
+
+    for i in range(num_groups):
+        with cols[i]:
+            group_name_key = f"group_name_{i}"
+            multiselect_key = f"ms_{i}"
+            
+            # Find the group name corresponding to this column index if it exists
+            # This is complex because dict keys aren't ordered, but for UI it's often stable enough
+            current_group_name = ""
+            try:
+                current_group_name = list(st.session_state.group_assignments.keys())[i]
+            except IndexError:
+                current_group_name = f"Group {i+1}"
+            
+            st.text_input(
+                "Group Name",
+                value=current_group_name,
+                key=group_name_key,
+                on_change=_update_group_assignments_callback
+            )
+            
+            current_group_members = st.session_state.group_assignments.get(current_group_name, [])
+            
+            # Available animals = all animals - animals assigned to OTHER groups
+            other_assigned_animals = all_assigned_animals - set(current_group_members)
+            available_options = [aid for aid in all_animal_ids if aid not in other_assigned_animals]
+            
+            st.multiselect(
+                "Select Animals",
+                options=sorted(available_options),
+                default=current_group_members,
+                key=multiselect_key,
+                on_change=_update_group_assignments_callback
+            )
 # --- END OF CHANGE ---
-
 
 def render_lean_mass_ui():
     """Renders the UI for lean mass input and returns the raw input for parsing."""
