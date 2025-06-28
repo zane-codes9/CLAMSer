@@ -240,7 +240,7 @@ def add_light_dark_cycle_info(df, light_start, light_end):
     """Adds a 'period' column (Light/Dark) to the dataframe."""
     if not isinstance(df, pd.DataFrame) or 'timestamp' not in df.columns or df.empty:
         return df # Return original/empty df if invalid
-        
+
     df_copy = df.copy()
 
     if not pd.api.types.is_datetime64_any_dtype(df_copy['timestamp']):
@@ -248,16 +248,16 @@ def add_light_dark_cycle_info(df, light_start, light_end):
          df_copy.dropna(subset=['timestamp'], inplace=True)
 
     df_copy['hour'] = df_copy['timestamp'].dt.hour
-    
+
     # --- LOGIC FIX IS HERE ---
-    if light_start < light_end:
-        # Standard day cycle. The fix is changing < to <= to include the end hour.
-        df_copy['period'] = df_copy['hour'].apply(lambda h: 'Light' if light_start <= h <= light_end else 'Dark')
+    if light_start <= light_end:
+        # Standard day cycle (e.g., light from 7 to 19)
+        df_copy['period'] = df_copy['hour'].apply(lambda h: 'Light' if light_start <= h < light_end else 'Dark')
     else:
         # Inverted cycle (e.g., light starts at 19, ends at 7)
-        df_copy['period'] = df_copy['hour'].apply(lambda h: 'Dark' if light_end < h <= light_start else 'Light')
+        df_copy['period'] = df_copy['hour'].apply(lambda h: 'Dark' if light_end <= h < light_start else 'Light')
     # --- END OF LOGIC FIX ---
-        
+
     df_copy = df_copy.drop(columns=['hour'])
     return df_copy
 
@@ -441,11 +441,35 @@ def convert_df_to_csv(df: pd.DataFrame) -> bytes:
     """
     Converts a pandas DataFrame to a UTF-8 encoded CSV byte string.
     The DataFrame index is not included in the output, which is ideal for Prism/SPSS.
-
-    Args:
-        df (pd.DataFrame): The DataFrame to convert.
-
-    Returns:
-        bytes: The CSV data as a byte string.
     """
     return df.to_csv(index=False).encode('utf-8')
+
+# --- NEW FUNCTION FOR CUMULATIVE DATA ---
+def calculate_interval_data(df):
+    """
+    Converts cumulative data to interval data by calculating the difference
+    between consecutive measurements for each animal. Assumes data is sorted
+    by animal and timestamp.
+
+    Args:
+        df (pd.DataFrame): Tidy dataframe with 'animal_id', 'timestamp', 'value'.
+
+    Returns:
+        pd.DataFrame: A dataframe with 'value' representing the interval change.
+    """
+    df_copy = df.copy()
+
+    # Calculate the difference within each animal's data
+    # This finds the change from the previous measurement for that animal
+    df_copy['value'] = df_copy.groupby('animal_id')['value'].diff()
+
+    # Sanity check: Handle artifacts
+    # 1. The first value for each animal is now NaN (Not a Number) because it has no preceding point.
+    #    We will drop these rows as they don't represent a complete interval.
+    df_copy.dropna(subset=['value'], inplace=True)
+
+    # 2. Negative values can occur from machine jitter (e.g., food hopper shake).
+    #    We will treat these as zero intake for that interval.
+    df_copy['value'] = df_copy['value'].clip(lower=0)
+
+    return df_copy

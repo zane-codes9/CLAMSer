@@ -31,7 +31,6 @@ def load_and_parse_files(uploaded_files):
                 
     return parsed_data, sorted(param_options), sorted(list(all_animal_ids))
 
-
 def render_analysis_controls(param_options):
     """Renders the analysis controls in the sidebar."""
     selected_parameter = st.selectbox(
@@ -47,16 +46,23 @@ def render_analysis_controls(param_options):
         col1, col2 = st.columns(2)
         with col1: custom_start = st.number_input("Start (hours from start)", min_value=0, step=1, key="custom_start")
         with col2: custom_end = st.number_input("End (hours from start)", min_value=custom_start or 0, step=1, key="custom_end")
+    
     st.markdown("---")
     st.subheader("Light/Dark Cycle")
-    light_start = st.slider("Light Cycle Start Hour (24h)", 0, 23, 7, key="light_start")
-    light_end = st.slider("Light Cycle End Hour (24h)", 0, 23, 19, key="light_end")
     
+    # --- START OF CHANGE: UI CLARIFICATION ---
+    st.caption("Define the light period using 24-hour format. The time outside this range will be considered the dark period.")
+    light_start = st.slider("Light Cycle START Hour", 0, 23, 7, key="light_start")
+    light_end = st.slider("Light Cycle END Hour", 0, 23, 19, key="light_end")
+    st.caption(f"Current setting: Light period is from {light_start}:00 to {light_end}:00.")
+    # --- END OF CHANGE ---
+
     return {
         "selected_parameter": selected_parameter, "time_window_option": time_window_option,
         "custom_start": custom_start, "custom_end": custom_end,
         "light_start": light_start, "light_end": light_end,
     }
+
 
 def render_main_view():
     """Renders the initial welcome/instruction view."""
