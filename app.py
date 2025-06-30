@@ -33,13 +33,28 @@ def main():
             ui.render_analysis_controls(st.session_state.param_options)
 
             st.markdown("---")
+            st.subheader("Outlier Flagging")
+            st.caption("Flag data points greater than 'n' standard deviations from the mean for each animal.")
+            
+            # --- START OF FIX ---
+            # The widget itself populates st.session_state.sd_threshold.
+            # The redundant assignment line has been removed.
+            st.number_input(
+                "Standard Deviation Threshold",
+                min_value=0.0,
+                max_value=10.0,
+                value=3.0,
+                step=0.5,
+                key="sd_threshold",
+                help="Set to 0 to disable outlier flagging."
+            )
+            # --- END OF FIX ---
+
+            st.markdown("---")
             with st.expander("Project Information & Credits"):
                 st.markdown(
                     """
                     **CLAMSer** is an open-source tool designed to accelerate the initial analysis of metabolic data from Columbus Instruments Oxymax CLAMS systems.
-                    **Cite Us:** (Placeholder for DOI/Publication Info)
-                    **Repository:** [GitHub](https://github.com/your-repo/clamser-v1)
-                    **Built With:** Streamlit, Pandas, Plotly
                     """
                 )
 
@@ -53,31 +68,24 @@ def main():
              st.session_state.param_options,
              st.session_state.animal_ids) = ui.load_and_parse_files(uploaded_files)
         st.session_state.data_loaded = True
-
+        # Initialize session state keys
         if 'group_assignments' not in st.session_state: st.session_state.group_assignments = {}
         if 'num_groups' not in st.session_state: st.session_state.num_groups = 1
-        if 'lean_mass_map' not in st.session_state: st.session_state.lean_mass_map = {}
-        if 'analysis_triggered' not in st.session_state: st.session_state.analysis_triggered = False
-        if 'selected_parameter' not in st.session_state and st.session_state.param_options:
-            st.session_state.selected_parameter = st.session_state.param_options[0]
         st.rerun()
-
-    if not st.session_state.param_options:
-        st.warning("No valid CLAMS data could be parsed. Please check your file formats.")
-        return
 
     st.header("Analysis Workspace")
     
     with st.expander("How It Works: Our Methodology", expanded=False):
         st.markdown(
             """
-            CLAMSer processes your data through a standardized, transparent pipeline to ensure reproducibility and clarity. Here are the steps:
-
-            1.  **Parsing & Tidying:** The application reads each uploaded file, automatically identifies the parameter (e.g., VO2, RER), and extracts the animal IDs. It then transforms the data from the wide format (one column per animal) into a "tidy" long format, where each row represents a single measurement for a single animal.
-            2.  **Time Filtering:** Based on your selection in the sidebar ("Entire Dataset", "Last 24 Hours", etc.), the data is filtered to include only the relevant time window for analysis.
-            3.  **Light/Dark Annotation:** Each measurement is tagged as belonging to either the "Light" or "Dark" period according to the cycle hours you define in the sidebar.
-            4.  **Grouping & Normalization:** Your custom group assignments are added to the data. If you select a normalization mode, the 'value' for each measurement is adjusted (e.g., divided by the corresponding animal's lean mass).
-            5.  **Summarization & Export:** With the processed data ready, the application calculates the final summary statistics (averages for Light, Dark, and Total periods) that you see in the tables and charts below. The exported data provides these final summaries, while the validation file provides the data from Step 4.
+            CLAMSer processes your data through a standardized pipeline:
+            1.  **Parsing & Tidying:** Reads each file, identifies the parameter, and transforms data into a tidy format.
+            2.  **Cumulative Conversion:** If a parameter name contains "ACC" (e.g., `FEED1 ACC`), the data is converted from cumulative to interval values.
+            3.  **Time Filtering:** Filters data to your selected analysis window.
+            4.  **Light/Dark Annotation:** Tags each measurement as "Light" or "Dark" based on your sidebar settings.
+            5.  **Outlier Flagging:** Flags data points outside the standard deviation threshold you set for each animal. These points are highlighted in the plot and counted in the summary table but are **not removed** from calculations.
+            6.  **Grouping & Normalization:** Applies your group assignments and normalization mode.
+            7.  **Summarization & Export:** Calculates final summary statistics for tables, charts, and export.
             """
         )
 
@@ -95,12 +103,6 @@ def main():
                 if parsed_map:
                     st.toast(f"Updated lean mass for {len(parsed_map)} animals.", icon="✅")
 
-    # This sanity check remains useful for a high-level view
-    with st.expander("Sanity Check: Live State Information"):
-        st.json(st.session_state.get('group_assignments', {}))
-        st.write("Selected Parameter:", st.session_state.get('selected_parameter'))
-
-
     st.markdown("---")
     st.header("Step 2: Generate Results")
 
@@ -110,57 +112,49 @@ def main():
     if st.session_state.get('analysis_triggered', False):
         selected_param = st.session_state.get("selected_parameter")
         time_window_option = st.session_state.get("time_window_option")
-        custom_start = st.session_state.get("custom_start")
-        custom_end = st.session_state.get("custom_end")
-        light_start = st.session_state.get("light_start")
-        light_end = st.session_state.get("light_end")
+        light_start, light_end = st.session_state.get("light_start"), st.session_state.get("light_end")
+        sd_threshold = st.session_state.get("sd_threshold") # Get the value set by the widget
 
-        df_processed_for_display = pd.DataFrame()
         if selected_param and selected_param in st.session_state.parsed_data:
             with st.spinner(f"Processing data for {selected_param}..."):
                 base_df = st.session_state.parsed_data[selected_param].copy()
-
-                # --- START OF CHANGE: CUMULATIVE DATA HANDLING ---
-                # Check if the parameter is cumulative (e.g., "FEED1 ACC", "ACCO2")
+                
                 is_cumulative = 'ACC' in selected_param.upper()
                 if is_cumulative:
-                    st.toast(f"Detected cumulative parameter '{selected_param}'. Converting to interval data.", icon="⚙️")
                     base_df = processing.calculate_interval_data(base_df)
-                # --- END OF CHANGE ---
+                
+                df_filtered = processing.filter_data_by_time(base_df, time_window_option, st.session_state.get("custom_start"), st.session_state.get("custom_end"))
+                df_annotated = processing.add_light_dark_cycle_info(df_filtered, light_start, light_end)
+                df_flagged = processing.flag_outliers(df_annotated, sd_threshold)
+                df_with_groups = processing.add_group_info(df_flagged, st.session_state.get('group_assignments', {}))
+                
+                normalization_mode = st.session_state.get("normalization_mode", "Absolute Values")
+                df_normalized, missing_ids, norm_error = processing.apply_normalization(
+                    df_with_groups, normalization_mode, st.session_state.get('lean_mass_map', {})
+                )
 
-                df_filtered = processing.filter_data_by_time(base_df, time_window_option, custom_start, custom_end)
-                df_processed_for_display = processing.add_light_dark_cycle_info(df_filtered, light_start, light_end)
-
-        if not df_processed_for_display.empty:
-            st.header("Analysis Results")
-            normalization_mode = st.radio(
-                "Select Normalization Mode",
-                options=["Absolute Values", "Body Weight Normalized", "Lean Mass Normalized"],
-                key="normalization_mode",
-                horizontal=True
-            )
-            df_with_groups = processing.add_group_info(df_processed_for_display, st.session_state.get('group_assignments', {}))
-            df_normalized, missing_ids, norm_error = processing.apply_normalization(
-                df_with_groups,
-                normalization_mode,
-                st.session_state.get('lean_mass_map', {})
-            )
             if norm_error: st.warning(norm_error, icon="⚠️")
             if missing_ids: st.info(f"The following animals were excluded from '{normalization_mode}' analysis due to missing data: {', '.join(map(str, missing_ids))}", icon="ℹ️")
 
             if not df_normalized.empty:
-                # Store the final summary table in session state so we can access it later
+                st.header("Analysis Results")
+                st.radio(
+                    "Select Normalization Mode",
+                    options=["Absolute Values", "Body Weight Normalized", "Lean Mass Normalized"],
+                    key="normalization_mode",
+                    horizontal=True
+                )
+                
                 st.session_state.summary_df_animal = processing.calculate_summary_stats_per_animal(df_normalized)
                 
                 key_metrics = processing.calculate_key_metrics(df_normalized)
                 st.subheader(f"Key Metrics for {selected_param} ({normalization_mode})")
-                # ... (Key Metrics display remains the same)
+                
                 col1, col2, col3 = st.columns(3)
                 with col1: st.metric(label="Overall Average", value=key_metrics['Overall Average'])
                 with col2: st.metric(label="Light Period Average", value=key_metrics['Light Average'])
                 with col3: st.metric(label="Dark Period Average", value=key_metrics['Dark Average'])
                 st.markdown("---")
-
 
                 st.subheader(f"Group Averages for {selected_param}")
                 group_summary_df = processing.calculate_summary_stats_per_group(df_normalized)
@@ -182,77 +176,10 @@ def main():
                    mime='text/csv',
                 )
 
-                st.markdown("---")
-                
-                # --- START OF NEW VALIDATION TOOL ---
-                with st.expander("Sanity Check: Detailed Animal Trace"):
-                    st.markdown("""
-                    Use this tool to verify the calculations for a single animal. 
-                    1. Select an animal.
-                    2. Compare the **Processed Data** to the **Raw Data** to confirm time filtering and light/dark annotation are correct.
-                    3. Manually calculate the average of the 'value' column in the Processed Data table and see if it matches the **Summary Value**.
-                    """)
-                    
-                    trace_animal_id = st.selectbox(
-                        "Select Animal to Trace", 
-                        options=sorted(st.session_state.animal_ids),
-                        key="trace_animal_select"
-                    )
-
-                    if trace_animal_id:
-                        col1, col2 = st.columns(2)
-                        
-                        # Display Processed Data
-                        with col1:
-                            st.write(f"**Processed Data for Animal {trace_animal_id}**")
-                            st.caption("This is the data used for final calculations (after filtering, annotation, and normalization).")
-                            animal_processed_df = df_normalized[df_normalized['animal_id'] == trace_animal_id]
-                            st.dataframe(animal_processed_df[['timestamp', 'period', 'value']].round(4), use_container_width=True)
-
-                        # Display Raw data and summary
-                        with col2:
-                            st.write(f"**Raw Data for Animal {trace_animal_id}**")
-                            st.caption("This is the original data from the uploaded file for this parameter.")
-                            raw_data_for_param = st.session_state.parsed_data.get(selected_param, pd.DataFrame())
-                            if not raw_data_for_param.empty:
-                                animal_raw_df = raw_data_for_param[raw_data_for_param['animal_id'] == trace_animal_id]
-                                st.dataframe(animal_raw_df[['timestamp', 'value']], use_container_width=True)
-                            
-                            st.markdown("---")
-                            
-                            st.write(f"**Final Summary Values for Animal {trace_animal_id}**")
-                            st.caption("From the main summary table above.")
-                            animal_summary_row = st.session_state.summary_df_animal[st.session_state.summary_df_animal['animal_id'] == trace_animal_id]
-                            st.dataframe(animal_summary_row, use_container_width=True, hide_index=True)
-                # --- END OF NEW VALIDATION TOOL ---
-
-                with st.expander("Internal Validation & Raw Data Export"):
-                    st.info(
-                        """
-                        This section allows you to download the data **after** it has been filtered, annotated, and normalized, but **before** any averaging or summary statistics are calculated.
-                        
-                        This is the exact dataset used to generate the charts and tables above. You can use this file in Excel, Prism, or any other software to manually verify the summary calculations.
-                        """,
-                        icon="✅"
-                    )
-
-                    validation_csv = validation_utils.generate_manual_validation_template(df_normalized)
-
-                    st.download_button(
-                        label="⬇️ Download Pre-Summary Data for Manual Validation (.csv)",
-                        data=validation_csv,
-                        file_name=f"CLAMSer_Validation_Data_{selected_param}_{normalization_mode.replace(' ', '_')}.csv",
-                        mime='text/csv',
-                    )
-                    
-                    with st.container(border=True):
-                        st.write("**Sanity Check: First 20 rows of the validation data to be exported:**")
-                        st.dataframe(df_normalized[['animal_id', 'group', 'period', 'value']].head(20), use_container_width=True)
-
             else:
-                st.warning("No data remains to be displayed. This can happen if no animals in the dataset have corresponding lean mass data.", icon="💡")
+                st.warning("No data remains to be displayed after normalization.", icon="💡")
         else:
-            st.warning("No data to display. Please click 'Process & Analyze Data' first.")
+            st.info("Click 'Process & Analyze Data' to generate results.")
 
 if __name__ == "__main__":
     main()

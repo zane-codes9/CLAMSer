@@ -6,6 +6,7 @@ import io
 import re
 from datetime import timedelta
 
+
 def parse_clams_header(lines):
     """
     Parses the header of a CLAMS data file from a list of strings to extract metadata.
@@ -153,7 +154,6 @@ def parse_clams_data(lines, data_start_line, animal_ids):
     return df_tidy.reset_index(drop=True)
 
 
-# --- NEW UTILITY FUNCTION ---
 def parse_lean_mass_data(lean_mass_input):
     """
     Parses lean mass data from either an uploaded file object or a raw text string.
@@ -249,14 +249,10 @@ def add_light_dark_cycle_info(df, light_start, light_end):
 
     df_copy['hour'] = df_copy['timestamp'].dt.hour
 
-    # --- LOGIC FIX IS HERE ---
     if light_start <= light_end:
-        # Standard day cycle (e.g., light from 7 to 19)
         df_copy['period'] = df_copy['hour'].apply(lambda h: 'Light' if light_start <= h < light_end else 'Dark')
     else:
-        # Inverted cycle (e.g., light starts at 19, ends at 7)
         df_copy['period'] = df_copy['hour'].apply(lambda h: 'Dark' if light_end <= h < light_start else 'Light')
-    # --- END OF LOGIC FIX ---
 
     df_copy = df_copy.drop(columns=['hour'])
     return df_copy
@@ -265,18 +261,10 @@ def add_light_dark_cycle_info(df, light_start, light_end):
 def add_group_info(df, group_assignments):
     """
     Adds a 'group' column to the dataframe based on user assignments.
-
-    Args:
-        df (pd.DataFrame): The data frame, must contain 'animal_id'.
-        group_assignments (dict): A dictionary mapping group names to lists of animal IDs.
-
-    Returns:
-        pd.DataFrame: The dataframe with an added 'group' column.
     """
     if 'animal_id' not in df.columns:
         return df
 
-    # Create a mapping from animal ID to group name for efficient lookup
     animal_to_group_map = {
         str(animal).strip(): group_name
         for group_name, animals in group_assignments.items()
@@ -284,26 +272,12 @@ def add_group_info(df, group_assignments):
     }
 
     df_copy = df.copy()
-    # **FIX:** Use the `.str` accessor to apply the strip method to each element in the Series.
     df_copy['group'] = df_copy['animal_id'].astype(str).str.strip().map(animal_to_group_map).fillna('Unassigned')
     return df_copy
 
-# --- NEW FUNCTION ---
 def apply_normalization(df, mode, lean_mass_map):
     """
     Applies the selected normalization to the 'value' column of the dataframe.
-    This function NO LONGER creates Streamlit UI elements.
-
-    Args:
-        df (pd.DataFrame): The data frame with 'animal_id' and 'value' columns.
-        mode (str): The normalization mode ("Absolute Values", "Lean Mass Normalized", etc.).
-        lean_mass_map (dict): A dictionary mapping animal_id to lean mass.
-
-    Returns:
-        tuple: A tuple containing (normalized_df, missing_animal_ids, error_message).
-               - normalized_df (pd.DataFrame): The dataframe with the 'value' column normalized.
-               - missing_animal_ids (list): IDs dropped due to missing data.
-               - error_message (str or None): A string with an error if one occurred, else None.
     """
     df_copy = df.copy()
     missing_animal_ids = []
@@ -313,19 +287,16 @@ def apply_normalization(df, mode, lean_mass_map):
         return df_copy, missing_animal_ids, None
 
     if mode == "Body Weight Normalized":
-        # Placeholder for a future feature.
         error_message = "Body Weight Normalization is not yet implemented. Showing absolute values."
         return df_copy, missing_animal_ids, error_message
 
     if mode == "Lean Mass Normalized":
         if not lean_mass_map:
             error_message = "Lean Mass normalization selected, but no valid lean mass data was provided."
-            # Return all animals as "missing"
             return pd.DataFrame(), list(df_copy['animal_id'].unique()), error_message
 
         df_copy['lean_mass'] = df_copy['animal_id'].map(lean_mass_map)
 
-        # Identify missing animals BEFORE dropping them
         missing_animals_mask = df_copy['lean_mass'].isnull()
         missing_animal_ids = df_copy[missing_animals_mask]['animal_id'].unique().tolist()
         
@@ -334,23 +305,61 @@ def apply_normalization(df, mode, lean_mass_map):
              error_message = "No animals had corresponding lean mass data."
              return pd.DataFrame(), missing_animal_ids, error_message
 
-        # Apply the normalization
         df_copy['value'] = df_copy['value'] / df_copy['lean_mass']
         return df_copy, missing_animal_ids, None
     
     return df_copy, missing_animal_ids, None
 
+
+# --- NEW FUNCTION: OUTLIER FLAGGING ---
+def flag_outliers(df, sd_threshold):
+    """
+    Flags outliers on a per-animal basis using the standard deviation method.
+    
+    Args:
+        df (pd.DataFrame): Dataframe with 'animal_id' and 'value'.
+        sd_threshold (float): The number of standard deviations to use as the cutoff.
+                              If 0 or None, no flagging is performed.
+    
+    Returns:
+        pd.DataFrame: The original dataframe with a new 'is_outlier' boolean column.
+    """
+    if sd_threshold is None or sd_threshold == 0:
+        df['is_outlier'] = False
+        return df
+
+    df_copy = df.copy()
+    # Use transform to calculate per-animal stats and broadcast them back to the original shape
+    # This is much more efficient than a groupby().apply()
+    animal_means = df_copy.groupby('animal_id')['value'].transform('mean')
+    animal_stds = df_copy.groupby('animal_id')['value'].transform('std')
+    
+    # Calculate the Z-score for each data point relative to its own animal's stats
+    # Fill NA for std (in case of single-point animals) to avoid division by zero
+    z_scores = (df_copy['value'] - animal_means) / animal_stds.fillna(1)
+    
+    df_copy['is_outlier'] = z_scores.abs() > sd_threshold
+    
+    return df_copy
+
+
 def calculate_summary_stats_per_animal(df):
     """
     Calculates summary statistics (Light, Dark, Total averages) for each animal.
-    This is for the main data table display.
+    Now includes a count of outliers.
     """
-    # This function is the same as the old `calculate_summary_stats`
     if df.empty or 'value' not in df.columns or 'period' not in df.columns:
         return pd.DataFrame()
 
-    total_avg = df.groupby(['animal_id', 'group'])['value'].mean().reset_index()
-    total_avg.rename(columns={'value': 'Total_Average'}, inplace=True)
+    # --- CHANGE: ADD OUTLIER COUNT TO GROUPING ---
+    agg_funcs = {
+        'value': 'mean',
+        'is_outlier': lambda x: x.sum() # Sum of True/False gives count of outliers
+    }
+    
+    total_stats = df.groupby(['animal_id', 'group']).agg(agg_funcs).reset_index()
+    total_stats.rename(columns={'value': 'Total_Average', 'is_outlier': 'Outlier_Count'}, inplace=True)
+    total_stats['Outlier_Count'] = total_stats['Outlier_Count'].astype(int)
 
     period_avg = df.pivot_table(
         index=['animal_id', 'group'],
@@ -360,58 +369,37 @@ def calculate_summary_stats_per_animal(df):
     ).reset_index()
     period_avg.columns.name = None
 
-    summary_df = pd.merge(total_avg, period_avg, on=['animal_id', 'group'], how='left')
+    summary_df = pd.merge(total_stats, period_avg, on=['animal_id', 'group'], how='left')
 
-    if 'Light' not in summary_df.columns:
-        summary_df['Light'] = pd.NA
-    if 'Dark' not in summary_df.columns:
-        summary_df['Dark'] = pd.NA
+    if 'Light' not in summary_df.columns: summary_df['Light'] = pd.NA
+    if 'Dark' not in summary_df.columns: summary_df['Dark'] = pd.NA
         
     summary_df.rename(columns={'Light': 'Light_Average', 'Dark': 'Dark_Average'}, inplace=True)
     
-    final_cols = ['animal_id', 'group', 'Light_Average', 'Dark_Average', 'Total_Average']
+    # --- CHANGE: ADD OUTLIER COUNT TO FINAL COLS ---
+    final_cols = ['animal_id', 'group', 'Light_Average', 'Dark_Average', 'Total_Average', 'Outlier_Count']
     existing_cols = [col for col in final_cols if col in summary_df.columns]
-    summary_df = summary_df[existing_cols]
+    
+    return summary_df[existing_cols].round(4)
 
-    return summary_df.round(4)
 
-
-# --- NEW FUNCTION ---
 def calculate_summary_stats_per_group(df):
     """
     Calculates summary statistics (mean, sem, count) for each experimental GROUP.
-    This is specifically for creating the summary bar chart.
-
-    Args:
-        df (pd.DataFrame): The processed dataframe with 'group', 'value', and 'period' columns.
-
-    Returns:
-        pd.DataFrame: A summary dataframe with one row per group/period combination.
     """
     if df.empty or 'group' not in df.columns or 'period' not in df.columns:
         return pd.DataFrame()
 
-    # Use .agg() to calculate mean, standard error of mean (sem), and count (n)
     group_stats = df.groupby(['group', 'period'])['value'].agg(['mean', 'sem', 'count']).reset_index()
-    
-    # --- NEW: Robustness fix for SEM ---
     group_stats['sem'] = group_stats['sem'].fillna(0)
-    
-    # Sort for consistent plotting order
     group_stats.sort_values(by=['group', 'period'], inplace=True)
     
     return group_stats.round(4)
 
+
 def calculate_key_metrics(df):
     """
     Calculates high-level metrics for the entire filtered dataset.
-
-    Args:
-        df (pd.DataFrame): The processed dataframe, after filtering and normalization.
-                           Must contain 'value' and 'period' columns.
-
-    Returns:
-        dict: A dictionary containing the calculated metrics.
     """
     if df.empty or 'value' not in df.columns:
         return {
@@ -421,11 +409,8 @@ def calculate_key_metrics(df):
         }
 
     overall_avg = df['value'].mean()
-
-    # Calculate period averages only if the period exists in the data
     light_df = df[df['period'] == 'Light']
     dark_df = df[df['period'] == 'Dark']
-    
     light_avg = light_df['value'].mean() if not light_df.empty else None
     dark_avg = dark_df['value'].mean() if not dark_df.empty else None
 
@@ -440,36 +425,16 @@ def calculate_key_metrics(df):
 def convert_df_to_csv(df: pd.DataFrame) -> bytes:
     """
     Converts a pandas DataFrame to a UTF-8 encoded CSV byte string.
-    The DataFrame index is not included in the output, which is ideal for Prism/SPSS.
     """
     return df.to_csv(index=False).encode('utf-8')
 
-# --- NEW FUNCTION FOR CUMULATIVE DATA ---
 def calculate_interval_data(df):
     """
     Converts cumulative data to interval data by calculating the difference
-    between consecutive measurements for each animal. Assumes data is sorted
-    by animal and timestamp.
-
-    Args:
-        df (pd.DataFrame): Tidy dataframe with 'animal_id', 'timestamp', 'value'.
-
-    Returns:
-        pd.DataFrame: A dataframe with 'value' representing the interval change.
+    between consecutive measurements for each animal.
     """
     df_copy = df.copy()
-
-    # Calculate the difference within each animal's data
-    # This finds the change from the previous measurement for that animal
     df_copy['value'] = df_copy.groupby('animal_id')['value'].diff()
-
-    # Sanity check: Handle artifacts
-    # 1. The first value for each animal is now NaN (Not a Number) because it has no preceding point.
-    #    We will drop these rows as they don't represent a complete interval.
     df_copy.dropna(subset=['value'], inplace=True)
-
-    # 2. Negative values can occur from machine jitter (e.g., food hopper shake).
-    #    We will treat these as zero intake for that interval.
     df_copy['value'] = df_copy['value'].clip(lower=0)
-
     return df_copy
