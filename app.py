@@ -15,7 +15,7 @@ def main():
         initial_sidebar_state="expanded"
     )
     with st.sidebar:
-        st.title("🧬 CLAMSer v1.0")
+        st.title("CLAMSer v1.0")
         st.header("File Upload")
         uploaded_files = st.file_uploader(
             "Upload CLAMS Data Files",
@@ -104,16 +104,14 @@ def main():
         st.session_state.analysis_triggered = True
 
     if st.session_state.get('analysis_triggered', False):
-        # ... (gathering params is the same) ...
         selected_param = st.session_state.get("selected_parameter")
         time_window_option = st.session_state.get("time_window_option")
         light_start, light_end = st.session_state.get("light_start"), st.session_state.get("light_end")
         sd_threshold = st.session_state.get("sd_threshold")
 
         if selected_param and selected_param in st.session_state.parsed_data:
-            df_processed = None # Define df_processed to check its state later
+            df_processed = None 
             with st.spinner(f"Processing data for {selected_param}..."):
-                # --- This block remains the same ---
                 base_df = st.session_state.parsed_data[selected_param].copy()
                 is_cumulative = 'ACC' in selected_param.upper()
                 if is_cumulative: base_df = processing.calculate_interval_data(base_df)
@@ -128,7 +126,7 @@ def main():
             )
 
             if norm_error: st.warning(norm_error, icon="⚠️")
-            # ... (missing_ids warning is the same) ...
+            if missing_ids: st.warning(f"Lean mass data not found for the following animals, which were excluded from normalization: {', '.join(missing_ids)}", icon="⚠️")
 
             if not df_normalized.empty:
                 st.header("Analysis Results")
@@ -139,12 +137,10 @@ def main():
                     horizontal=True
                 )
                 
-                # --- All calculations happen on the full dataset ---
                 st.session_state.summary_df_animal = processing.calculate_summary_stats_per_animal(df_normalized)
                 key_metrics = processing.calculate_key_metrics(df_normalized)
                 group_summary_df = processing.calculate_summary_stats_per_group(df_normalized)
                 
-                # --- Display Key Metrics and Bar Chart (Unaffected by new filter) ---
                 st.subheader(f"Key Metrics for {selected_param} ({normalization_mode})")
                 col1, col2, col3 = st.columns(3)
                 with col1: st.metric(label="Overall Average", value=key_metrics['Overall Average'])
@@ -158,36 +154,59 @@ def main():
                 st.markdown("---")
                 st.subheader("Interactive Timeline Display Options")
 
-                # --- START OF NEW FEATURE ---
-                # 1. Get available groups from the processed data
                 available_groups = sorted(df_normalized['group'].unique())
-                
-                # 2. Create the multiselect widget
                 selected_groups = st.multiselect(
                     "Select groups to display on the timeline:",
                     options=available_groups,
-                    default=available_groups, # Default to showing all groups
+                    default=available_groups,
                     key="group_filter_multiselect"
                 )
 
-                # 3. Filter the dataframe FOR THE TIMELINE PLOT ONLY
                 df_for_timeline = df_normalized[df_normalized['group'].isin(selected_groups)]
                 
-                # 4. Generate and display the plot
                 st.subheader(f"Interactive Timeline for {selected_param}")
                 if not df_for_timeline.empty:
                     timeline_fig = plotting.create_timeline_chart(df_for_timeline, light_start, light_end, selected_param)
                     st.plotly_chart(timeline_fig, use_container_width=True)
                 else:
                     st.info("No data to display for the selected groups. Please select at least one group in the filter above.")
-                # --- END OF NEW FEATURE ---
                 
-                # --- Display Summary Table (Unaffected by new filter) ---
                 st.markdown("---")
                 st.subheader("Summary Data Table (per Animal)")
                 st.dataframe(st.session_state.summary_df_animal, use_container_width=True)
-                
-                # ... (download buttons and other sections are unchanged) ...
+
+                # --- START: NEW EXPORT SECTION ---
+                st.markdown("---")
+                st.subheader("Step 3: Export Results")
+
+                col1_exp, col2_exp = st.columns(2)
+
+                with col1_exp:
+                    # Check if the summary DataFrame exists and is not empty
+                    if 'summary_df_animal' in st.session_state and not st.session_state.summary_df_animal.empty:
+                        st.download_button(
+                           label="📥 Export Summary Data (.csv)",
+                           data=processing.convert_df_to_csv(st.session_state.summary_df_animal),
+                           file_name=f"{selected_param}_summary_data.csv",
+                           mime='text/csv',
+                           key='download_summary',
+                           help="Downloads the aggregated summary statistics table shown above."
+                        )
+                        st.caption("Contains the final Light/Dark/Total averages for each animal.")
+
+                with col2_exp:
+                     # Check if the processed DataFrame exists and is not empty
+                    if not df_normalized.empty:
+                        st.download_button(
+                            label="🔬 Download Raw Data for Validation (.csv)",
+                            data=validation_utils.generate_manual_validation_template(df_normalized),
+                            file_name=f"{selected_param}_validation_data.csv",
+                            mime='text/csv',
+                            key='download_validation',
+                            help="Downloads the full, point-by-point dataset used for all calculations."
+                        )
+                        st.caption("Ideal for manual validation in Excel or Prism.")
+                # --- END: NEW EXPORT SECTION ---
 
             else:
                 st.warning("No data remains to be displayed after processing and normalization.", icon="💡")

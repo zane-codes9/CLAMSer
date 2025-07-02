@@ -50,12 +50,11 @@ def render_analysis_controls(param_options):
     st.markdown("---")
     st.subheader("Light/Dark Cycle")
     
-    # --- START OF CHANGE: UI CLARIFICATION ---
+    # UI CLARIFICATION ---
     st.caption("Define the light period using 24-hour format. The time outside this range will be considered the dark period.")
     light_start = st.slider("Light Cycle START Hour", 0, 23, 7, key="light_start")
     light_end = st.slider("Light Cycle END Hour", 0, 23, 19, key="light_end")
     st.caption(f"Current setting: Light period is from {light_start}:00 to {light_end}:00.")
-    # --- END OF CHANGE ---
 
     return {
         "selected_parameter": selected_parameter, "time_window_option": time_window_option,
@@ -63,16 +62,12 @@ def render_analysis_controls(param_options):
         "light_start": light_start, "light_end": light_end,
     }
 
-
 def render_main_view():
     """Renders the initial welcome/instruction view."""
     st.title("Welcome to CLAMSer v1.0")
-    st.markdown("A tool for streamlined analysis of single-run CLAMS metabolic data.")
+    st.markdown("A tool for the rapid analysis and visualization of metabolic data.")
+    st.subheader("Designed for data from Columbus Instruments Oxymax-CLAMS systems.")
     st.info("To begin, please upload your CLAMS data files using the sidebar uploader.", icon="👈")
-
-
-# --- START OF CHANGE ---
-# Refactored to be a live, reactive component without a form.
 
 def _update_group_assignments_callback():
     """
