@@ -11,9 +11,6 @@ def parse_clams_header(lines):
     """
     Parses the header of a CLAMS data file from a list of strings to extract metadata.
     This version is robust to both comma and tab delimiters in the header.
-    
-    Args:
-        lines (list): The content of the file as a list of strings.
     """
     parameter = None
     animal_ids = {}
@@ -24,14 +21,18 @@ def parse_clams_header(lines):
         clean_line = line.strip()
         if not clean_line:
             continue
+        
+        # Stop parsing if we hit the data section marker
+        if ":DATA" in line:
+            data_start_line = i
+            break
 
-        # --- FIX: Robustly split header lines on the first delimiter found ---
         if ',' in clean_line:
             parts = [p.strip() for p in clean_line.split(',', 1)]
         elif '\t' in clean_line:
             parts = [p.strip() for p in clean_line.split('\t', 1)]
         else:
-            parts = [clean_line]  # Handle lines with no delimiter
+            parts = [clean_line]
 
         first_part = parts[0].lower()
 
@@ -42,18 +43,26 @@ def parse_clams_header(lines):
                 parameter = name_part[:paren_pos].strip() if paren_pos != -1 else name_part
         elif 'group/cage' in first_part:
             if len(parts) > 1:
-                # Remove leading zeros before converting to int, handles '0101'
+                # This line is now safe from crashing the entire app
                 current_cage_num_str = parts[1].lstrip('0')
         elif 'subject id' in first_part and current_cage_num_str is not None:
             if len(parts) > 1:
                 subject_id = parts[1]
-                # Pad with zeros to create the CAGE XXXX format for matching
-                cage_key = f"CAGE {int(current_cage_num_str):04d}"
-                animal_ids[cage_key] = subject_id
-                current_cage_num_str = None
-        elif ":DATA" in line:
-            data_start_line = i # Line index where :DATA is found
-            break
+                # --- FIX 1: Add try-except block for robustness ---
+                try:
+                    cage_key = f"CAGE {int(current_cage_num_str):04d}"
+                    animal_ids[cage_key] = subject_id
+                except (ValueError, TypeError):
+                    # This line is malformed, log it and skip this entry
+                    print(f"Warning: Could not parse cage number '{current_cage_num_str}'. Skipping.")
+                finally:
+                    # Always reset to avoid carrying over a bad value
+                    current_cage_num_str = None
+
+    # --- FIX 2: Add guard clause to ensure :DATA was found ---
+    if data_start_line == -1:
+        st.error("Fatal Error: The ':DATA' marker was not found in one of the files. Cannot proceed with parsing.")
+        return None, None, -1
 
     return parameter, animal_ids, data_start_line
 
@@ -199,18 +208,16 @@ def parse_lean_mass_data(lean_mass_input):
     except Exception as e:
         return None, f"An unexpected error occurred while parsing the lean mass data. Please ensure it is a two-column format (animal_id, mass). Details: {e}"
 
-
 def filter_data_by_time(df, time_window_option, custom_start, custom_end):
     """Filters the dataframe based on the selected time window."""
     if not isinstance(df, pd.DataFrame) or 'timestamp' not in df.columns:
-        return pd.DataFrame() # Return empty DataFrame if input is invalid
+        return pd.DataFrame() 
     
     df_copy = df.copy()
 
     if time_window_option == "Entire Dataset":
         return df_copy
 
-    # Ensure timestamp is datetime before comparisons
     if not pd.api.types.is_datetime64_any_dtype(df_copy['timestamp']):
          df_copy['timestamp'] = pd.to_datetime(df_copy['timestamp'], errors='coerce')
          df_copy.dropna(subset=['timestamp'], inplace=True)
@@ -227,12 +234,19 @@ def filter_data_by_time(df, time_window_option, custom_start, custom_end):
         cutoff_time = max_time - duration_map[time_window_option]
         return df_copy[df_copy['timestamp'] >= cutoff_time]
         
+    # --- START: REVISED LOGIC FOR CUSTOM TIME WINDOW ---
     elif time_window_option == "Custom...":
         if df_copy.empty or custom_start is None or custom_end is None: return df_copy
-        min_time = df_copy['timestamp'].min()
-        start_time = min_time + timedelta(hours=custom_start)
-        end_time = min_time + timedelta(hours=custom_end)
-        return df_copy[(df_copy['timestamp'] >= start_time) & (df_copy['timestamp'] <= end_time)]
+        
+        # Filter based on the HOUR OF THE DAY, not hours from start
+        hour_of_day = df_copy['timestamp'].dt.hour
+        if custom_start <= custom_end:
+            # Standard case (e.g., filter from hour 8 to 17)
+            return df_copy[(hour_of_day >= custom_start) & (hour_of_day < custom_end)]
+        else:
+            # Inverted case (e.g., filter from hour 19 to 7 the next day)
+            return df_copy[(hour_of_day >= custom_start) | (hour_of_day < custom_end)]
+    # --- END: REVISED LOGIC ---
         
     return df_copy
 
@@ -280,35 +294,35 @@ def apply_normalization(df, mode, lean_mass_map):
     Applies the selected normalization to the 'value' column of the dataframe.
     """
     df_copy = df.copy()
-    missing_animal_ids = []
-    error_message = None
-
-    if mode == "Absolute Values":
-        return df_copy, missing_animal_ids, None
-
-    if mode == "Body Weight Normalized":
-        error_message = "Body Weight Normalization is not yet implemented. Showing absolute values."
-        return df_copy, missing_animal_ids, error_message
+    
+    if mode in ["Absolute Values", "Body Weight Normalized"]:
+        error_message = "Body Weight Normalization is not yet implemented. Showing absolute values." if mode == "Body Weight Normalized" else None
+        return df_copy, [], error_message # Return empty list for missing_ids
 
     if mode == "Lean Mass Normalized":
         if not lean_mass_map:
             error_message = "Lean Mass normalization selected, but no valid lean mass data was provided."
+            # All animals are effectively "missing"
             return pd.DataFrame(), list(df_copy['animal_id'].unique()), error_message
 
         df_copy['lean_mass'] = df_copy['animal_id'].map(lean_mass_map)
 
+        # IMPORTANT: Identify missing animals *before* dropping any data
         missing_animals_mask = df_copy['lean_mass'].isnull()
         missing_animal_ids = df_copy[missing_animals_mask]['animal_id'].unique().tolist()
         
-        df_copy.dropna(subset=['lean_mass'], inplace=True)
-        if df_copy.empty:
-             error_message = "No animals had corresponding lean mass data."
+        # Now, create the normalized dataframe by removing animals without lean mass
+        df_normalized = df_copy.dropna(subset=['lean_mass']).copy()
+        
+        if df_normalized.empty:
+             error_message = "No animals in the current dataset had corresponding lean mass data."
              return pd.DataFrame(), missing_animal_ids, error_message
 
-        df_copy['value'] = df_copy['value'] / df_copy['lean_mass']
-        return df_copy, missing_animal_ids, None
+        # Perform the calculation on the new, clean dataframe
+        df_normalized['value'] = df_normalized['value'] / df_normalized['lean_mass']
+        return df_normalized, missing_animal_ids, None
     
-    return df_copy, missing_animal_ids, None
+    return df_copy, [], None # Default return
 
 
 # --- NEW FUNCTION: OUTLIER FLAGGING ---

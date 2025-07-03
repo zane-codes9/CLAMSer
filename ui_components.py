@@ -43,9 +43,11 @@ def render_analysis_controls(param_options):
     )
     custom_start, custom_end = None, None
     if time_window_option == "Custom...":
+        st.caption("Filter data to a specific time of day (24-hr format).") # Add clarification
         col1, col2 = st.columns(2)
-        with col1: custom_start = st.number_input("Start (hours from start)", min_value=0, step=1, key="custom_start")
-        with col2: custom_end = st.number_input("End (hours from start)", min_value=custom_start or 0, step=1, key="custom_end")
+        # --- CHANGE LABELS FOR CLARITY ---
+        with col1: custom_start = st.number_input("Start Hour", min_value=0, max_value=23, step=1, key="custom_start")
+        with col2: custom_end = st.number_input("End Hour", min_value=0, max_value=23, step=1, key="custom_end")
     
     st.markdown("---")
     st.subheader("Light/Dark Cycle")

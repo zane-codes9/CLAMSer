@@ -24,7 +24,7 @@ def generate_manual_validation_template(df: pd.DataFrame) -> bytes:
         # Create an empty but correctly formatted dataframe if input is bad
         validation_df = pd.DataFrame(columns=["Animal_ID", "Group", "Period", "Value"])
     else:
-        validation_df = df[["animal_id", "group", "period", "value"]].copy()
+        validation_df = df[["animal_id", "group", "period", "value", "is_outlier"]].copy()
 
     validation_df.rename(
         columns={
@@ -32,6 +32,7 @@ def generate_manual_validation_template(df: pd.DataFrame) -> bytes:
             "group": "Group",
             "period": "Period",
             "value": "Value",
+            "is_outlier":"Is_Outlier"
         },
         inplace=True,
     )
