@@ -9,26 +9,45 @@ def load_and_parse_files(uploaded_files):
     parsed_data = {}
     param_options = []
     all_animal_ids = set()
-    
+    errors_found = False # <-- New flag to track if we should halt
+
     for file in uploaded_files:
         try:
             file_content = file.getvalue().decode('utf-8', errors='ignore')
             lines = file_content.splitlines()
         except Exception as e:
-            st.error(f"Could not read file {file.name}. Error: {e}")
-            continue
+            st.error(f"Fatal Error: Could not read file **{file.name}**. Error: {e}")
+            errors_found = True
+            continue # Skip to the next file
         
         parameter, animal_ids_map, data_start_line = processing.parse_clams_header(lines)
-        if parameter and data_start_line > -1:
-            if parameter not in param_options:
-                param_options.append(parameter)
-            df_tidy = processing.parse_clams_data(lines, data_start_line, animal_ids_map)
-            if df_tidy is not None and not df_tidy.empty:
-                parsed_data[parameter] = df_tidy
-                all_animal_ids.update(df_tidy['animal_id'].unique())
-            else:
-                st.warning(f"Could not parse data for parameter '{parameter}' in file '{file.name}'.")
-                
+
+        # --- START: THIS IS THE CRITICAL NEW LOGIC ---
+        if parameter is None or data_start_line == -1:
+            # parse_clams_header already prints its own specific st.error, so we
+            # just add context and halt further processing for this file.
+            st.warning(f"Skipping file **{file.name}** due to a header parsing error. Check that it is a valid, unmodified CLAMS file.")
+            errors_found = True
+            continue
+        # --- END: CRITICAL NEW LOGIC ---
+
+        if parameter not in param_options:
+            param_options.append(parameter)
+        
+        df_tidy = processing.parse_clams_data(lines, data_start_line, animal_ids_map)
+        
+        if df_tidy is not None and not df_tidy.empty:
+            parsed_data[parameter] = df_tidy
+            all_animal_ids.update(df_tidy['animal_id'].unique())
+        else:
+            # This catches failures in the data section parsing
+            st.error(f"Failed to extract data from **{file.name}** for parameter '{parameter}'. The file may be corrupt or formatted incorrectly after the ':DATA' marker.")
+            errors_found = True
+
+    # If any error was found, we should not proceed with a potentially incomplete dataset
+    if errors_found:
+        st.stop() # Halts the script to ensure user sees the errors.
+
     return parsed_data, sorted(param_options), sorted(list(all_animal_ids))
 
 def render_analysis_controls(param_options):

@@ -46,10 +46,25 @@ def main():
             )
 
             st.markdown("---")
-            with st.expander("Project Information & Credits"):
+            with st.expander("Project Information, Methodology & Credits", expanded=False): # Renamed for clarity
                 st.markdown(
                     """
                     **CLAMSer** is an open-source tool designed to accelerate the initial analysis of metabolic data from Columbus Instruments Oxymax CLAMS systems.
+                    """
+                )
+                st.markdown("---")
+                st.markdown(
+                    """
+                    **How It Works: Our Methodology**
+                    
+                    CLAMSer processes your data through a standardized pipeline:
+                    1.  **Parsing & Tidying:** Reads each file, identifies the parameter, and transforms data into a tidy format.
+                    2.  **Cumulative Conversion:** If a parameter name contains "ACC" (e.g., `FEED1 ACC`), the data is converted from cumulative to interval values.
+                    3.  **Time Filtering:** Filters data to your selected analysis window.
+                    4.  **Light/Dark Annotation:** Tags each measurement as "Light" or "Dark" based on your sidebar settings.
+                    5.  **Outlier Flagging:** Flags data points outside the standard deviation threshold you set for each animal. These points are highlighted in the plot and counted in the summary table but are **not removed** from calculations.
+                    6.  **Grouping & Normalization:** Applies your group assignments and normalization mode.
+                    7.  **Summarization & Export:** Calculates final summary statistics for tables, charts, and export.
                     """
                 )
 
@@ -63,25 +78,13 @@ def main():
              st.session_state.param_options,
              st.session_state.animal_ids) = ui.load_and_parse_files(uploaded_files)
         st.session_state.data_loaded = True
+        if not st.session_state.param_options and uploaded_files:
+            st.error("Upload Error: We couldn't find any valid CLAMS parameters in the uploaded files. Please check that the files are correctly formatted and contain a ':DATA' marker.")
         if 'group_assignments' not in st.session_state: st.session_state.group_assignments = {}
         if 'num_groups' not in st.session_state: st.session_state.num_groups = 1
         st.rerun()
 
     st.header("Analysis Workspace")
-    
-    with st.expander("How It Works: Our Methodology", expanded=False):
-        st.markdown(
-            """
-            CLAMSer processes your data through a standardized pipeline:
-            1.  **Parsing & Tidying:** Reads each file, identifies the parameter, and transforms data into a tidy format.
-            2.  **Cumulative Conversion:** If a parameter name contains "ACC" (e.g., `FEED1 ACC`), the data is converted from cumulative to interval values.
-            3.  **Time Filtering:** Filters data to your selected analysis window.
-            4.  **Light/Dark Annotation:** Tags each measurement as "Light" or "Dark" based on your sidebar settings.
-            5.  **Outlier Flagging:** Flags data points outside the standard deviation threshold you set for each animal. These points are highlighted in the plot and counted in the summary table but are **not removed** from calculations.
-            6.  **Grouping & Normalization:** Applies your group assignments and normalization mode.
-            7.  **Summarization & Export:** Calculates final summary statistics for tables, charts, and export.
-            """
-        )
 
     with st.expander("Step 1: Setup Groups & Lean Mass", expanded=True):
         ui.render_group_assignment_ui(st.session_state.animal_ids)
@@ -130,13 +133,6 @@ def main():
 
             if not df_normalized.empty:
                 st.header("Analysis Results")
-                st.radio(
-                    "Select Normalization Mode",
-                    options=["Absolute Values", "Body Weight Normalized", "Lean Mass Normalized"],
-                    key="normalization_mode",
-                    horizontal=True
-                )
-                
                 st.session_state.summary_df_animal = processing.calculate_summary_stats_per_animal(df_normalized)
                 key_metrics = processing.calculate_key_metrics(df_normalized)
                 group_summary_df = processing.calculate_summary_stats_per_group(df_normalized)

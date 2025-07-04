@@ -21,13 +21,13 @@ def create_timeline_chart(df, light_start, light_end, parameter_name):
         if col not in df.columns:
             df[col] = 'Unassigned' if col != 'is_outlier' else False
     
-    # --- START OF FIX: ADD 'line_group' and 'hover_data' ---
+    # --- START OF FIX for the spiderweb effect
     fig = px.line(
         df,
         x='timestamp',
         y='value',
         color='group',
-        line_group='animal_id',  # <--- THIS IS THE CRITICAL FIX
+        line_group='animal_id',  
         title=f"Timeline for {parameter_name}",
         labels={"timestamp": "Date and Time", "value": parameter_name, "group": "Group"},
         # Add animal_id to hover data for clarity
