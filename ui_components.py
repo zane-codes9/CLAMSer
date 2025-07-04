@@ -181,19 +181,39 @@ def render_group_assignment_ui(all_animal_ids):
             )
 # --- END OF CHANGE ---
 
-def render_lean_mass_ui():
-    """Renders the UI for lean mass input and returns the raw input for parsing."""
-    st.subheader("B. Lean Mass Input (Optional)")
-    st.radio("Input Method", ["File Upload", "Manual Entry"], key='lean_mass_input_method', horizontal=True)
+def render_mass_ui(mass_type_label: str, key_prefix: str, help_text: str):
+    """
+    Renders a generic UI for mass data input (e.g., Body Weight, Lean Mass).
+    
+    Args:
+        mass_type_label (str): The label for the subheader (e.g., "Body Weight").
+        key_prefix (str): A unique prefix for Streamlit keys (e.g., "bw", "lm").
+        help_text (str): Specific help text for the user.
+    """
+    st.subheader(f"{mass_type_label} Input (Optional)")
+    
+    # Use unique keys for each instance of this UI component
+    radio_key = f"{key_prefix}_input_method"
+    uploader_key = f"{key_prefix}_uploader"
+    manual_text_key = f"{key_prefix}_manual_text"
 
-    if st.session_state.lean_mass_input_method == "File Upload":
-        st.file_uploader("Upload Lean Mass CSV", type=['csv', 'txt'], key='lean_mass_uploader')
-        st.caption("Format: Two columns (`animal_id,lean_mass`) with no header.")
-        st.code("456,20.1\n457,21.5", language="text")
-        return st.session_state.get('lean_mass_uploader')
+    st.radio(
+        "Input Method", 
+        ["File Upload", "Manual Entry"], 
+        key=radio_key, 
+        horizontal=True
+    )
+
+    if st.session_state[radio_key] == "File Upload":
+        st.file_uploader(f"Upload {mass_type_label} CSV", type=['csv', 'txt'], key=uploader_key)
+        st.caption(f"Format: Two columns (`animal_id,{key_prefix}_mass`) with no header.")
+        st.code(f"456,25.3\n457,24.1", language="text") # Example with a different value
+        return st.session_state.get(uploader_key)
     else:
         st.text_area(
-            "Paste data here", key='lean_mass_manual_text',
-            help="Paste two columns from a spreadsheet, or type 'animal_id,mass' on each line.", height=150
+            "Paste data here", 
+            key=manual_text_key,
+            help=help_text, 
+            height=150
         )
-        return st.session_state.get('lean_mass_manual_text', '').strip()
+        return st.session_state.get(manual_text_key, '').strip()

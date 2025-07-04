@@ -162,51 +162,39 @@ def parse_clams_data(lines, data_start_line, animal_ids):
 
     return df_tidy.reset_index(drop=True)
 
-
-def parse_lean_mass_data(lean_mass_input):
+def parse_mass_data(mass_input, mass_type_name: str):
     """
-    Parses lean mass data from either an uploaded file object or a raw text string.
-    Expected format is a two-column CSV-like structure: animal_id, lean_mass.
-    Headers are not expected.
-
+    Parses mass data (body weight or lean mass) from an uploaded file or text.
+    
     Args:
-        lean_mass_input: An uploaded file object (e.g., BytesIO) or a raw string from st.text_area.
-
+        mass_input: A file object or a raw text string.
+        mass_type_name (str): The type of mass being parsed, for error messages.
+    
     Returns:
-        tuple: A tuple containing (lean_mass_map, error_message).
-               - lean_mass_map (dict): A dictionary mapping animal_id (str) to lean_mass (float).
-               - error_message (str or None): A string with an error if parsing fails, else None.
+        tuple: (mass_map, error_message)
     """
-    if not lean_mass_input:
+    if not mass_input:
         return {}, None
 
     try:
-        if isinstance(lean_mass_input, str):
-            source = io.StringIO(lean_mass_input)
-        else: # Assumes it's a file-like object from st.file_uploader
-            source = lean_mass_input
-
+        source = io.StringIO(mass_input) if isinstance(mass_input, str) else mass_input
         df = pd.read_csv(
             source,
             header=None,
-            names=['animal_id', 'lean_mass'],
+            names=['animal_id', 'mass'],
             skipinitialspace=True,
-            dtype={'animal_id': str} # Ensure animal IDs are read as strings
+            dtype={'animal_id': str}
         )
+        df['mass'] = pd.to_numeric(df['mass'], errors='coerce')
+        if df['mass'].isnull().any():
+            return None, f"The '{mass_type_name}' column contains non-numeric values. Please check your data."
 
-        # Validate that lean_mass column is numeric
-        df['lean_mass'] = pd.to_numeric(df['lean_mass'], errors='coerce')
-        if df['lean_mass'].isnull().any():
-            return None, "Error: The 'lean_mass' column contains non-numeric values. Please check your data."
-
-        # Convert to dictionary
-        lean_mass_map = df.set_index('animal_id')['lean_mass'].to_dict()
-        # Clean keys by stripping any whitespace
-        lean_mass_map = {str(k).strip(): float(v) for k, v in lean_mass_map.items()}
-        return lean_mass_map, None
+        mass_map = df.set_index('animal_id')['mass'].to_dict()
+        mass_map = {str(k).strip(): float(v) for k, v in mass_map.items()}
+        return mass_map, None
 
     except Exception as e:
-        return None, f"An unexpected error occurred while parsing the lean mass data. Please ensure it is a two-column format (animal_id, mass). Details: {e}"
+        return None, f"An unexpected error occurred parsing the {mass_type_name} data. Details: {e}"
 
 def filter_data_by_time(df, time_window_option, custom_start, custom_end):
     """Filters the dataframe based on the selected time window."""
@@ -289,40 +277,49 @@ def add_group_info(df, group_assignments):
     df_copy['group'] = df_copy['animal_id'].astype(str).str.strip().map(animal_to_group_map).fillna('Unassigned')
     return df_copy
 
-def apply_normalization(df, mode, lean_mass_map):
+# --- UPDATED FUNCTION ---
+def apply_normalization(df, mode, body_weight_map, lean_mass_map):
     """
     Applies the selected normalization to the 'value' column of the dataframe.
+    Now accepts both body weight and lean mass maps.
     """
     df_copy = df.copy()
-    
-    if mode in ["Absolute Values", "Body Weight Normalized"]:
-        error_message = "Body Weight Normalization is not yet implemented. Showing absolute values." if mode == "Body Weight Normalized" else None
-        return df_copy, [], error_message # Return empty list for missing_ids
+    missing_animal_ids = []
+    error_message = None
 
-    if mode == "Lean Mass Normalized":
+    if mode == "Absolute Values":
+        return df_copy, missing_animal_ids, None
+
+    elif mode == "Body Weight Normalized":
+        if not body_weight_map:
+            error_message = "Body Weight normalization selected, but no body weight data was provided. Displaying Absolute Values."
+            return df_copy, list(df_copy['animal_id'].unique()), error_message
+        
+        df_copy['mass'] = df_copy['animal_id'].map(body_weight_map)
+        mass_type = "body weight"
+
+    elif mode == "Lean Mass Normalized":
         if not lean_mass_map:
-            error_message = "Lean Mass normalization selected, but no valid lean mass data was provided."
-            # All animals are effectively "missing"
-            return pd.DataFrame(), list(df_copy['animal_id'].unique()), error_message
+            error_message = "Lean Mass normalization selected, but no lean mass data was provided. Displaying Absolute Values."
+            return df_copy, list(df_copy['animal_id'].unique()), error_message
+            
+        df_copy['mass'] = df_copy['animal_id'].map(lean_mass_map)
+        mass_type = "lean mass"
+    else:
+        return df_copy, [], "Invalid normalization mode selected."
 
-        df_copy['lean_mass'] = df_copy['animal_id'].map(lean_mass_map)
-
-        # IMPORTANT: Identify missing animals *before* dropping any data
-        missing_animals_mask = df_copy['lean_mass'].isnull()
-        missing_animal_ids = df_copy[missing_animals_mask]['animal_id'].unique().tolist()
-        
-        # Now, create the normalized dataframe by removing animals without lean mass
-        df_normalized = df_copy.dropna(subset=['lean_mass']).copy()
-        
-        if df_normalized.empty:
-             error_message = "No animals in the current dataset had corresponding lean mass data."
-             return pd.DataFrame(), missing_animal_ids, error_message
-
-        # Perform the calculation on the new, clean dataframe
-        df_normalized['value'] = df_normalized['value'] / df_normalized['lean_mass']
-        return df_normalized, missing_animal_ids, None
+    # Generic logic for both mass types
+    missing_animals_mask = df_copy['mass'].isnull()
+    missing_animal_ids = df_copy[missing_animals_mask]['animal_id'].unique().tolist()
     
-    return df_copy, [], None # Default return
+    df_normalized = df_copy.dropna(subset=['mass']).copy()
+    
+    if df_normalized.empty:
+         error_message = f"No animals in the current dataset had corresponding {mass_type} data."
+         return pd.DataFrame(), missing_animal_ids, error_message
+
+    df_normalized['value'] = df_normalized['value'] / df_normalized['mass']
+    return df_normalized, missing_animal_ids, None
 
 
 # --- NEW FUNCTION: OUTLIER FLAGGING ---

@@ -86,27 +86,66 @@ def main():
 
     st.header("Analysis Workspace")
 
-    with st.expander("Step 1: Setup Groups & Lean Mass", expanded=True):
+    # --- MAJOR CHANGE: Use the new generic UI components ---
+    with st.expander("Step 1: Setup Groups & Mass Data", expanded=True):
         ui.render_group_assignment_ui(st.session_state.animal_ids)
         st.markdown("---")
-        lean_mass_input = ui.render_lean_mass_ui()
-        parsed_map, error_msg = processing.parse_lean_mass_data(lean_mass_input)
-        if error_msg:
-            st.error(f"Lean Mass Data Error: {error_msg}")
-            st.session_state.lean_mass_map = {}
-        else:
-            if parsed_map != st.session_state.get('lean_mass_map', {}):
-                st.session_state.lean_mass_map = parsed_map
-                if parsed_map:
-                    st.toast(f"Updated lean mass for {len(parsed_map)} animals.", icon="✅")
+        
+        # Create two columns for a cleaner layout
+        col1_mass, col2_mass = st.columns(2)
+
+        with col1_mass:
+            bw_input = ui.render_mass_ui(
+                "Body Weight", "bw", "Paste two columns: animal_id, body_weight"
+            )
+            # Parse Body Weight Data
+            parsed_bw_map, bw_error_msg = processing.parse_mass_data(bw_input, "body weight")
+            if bw_error_msg:
+                st.error(f"Body Weight Data Error: {bw_error_msg}")
+                st.session_state.body_weight_map = {}
+            else:
+                if parsed_bw_map != st.session_state.get('body_weight_map', {}):
+                    st.session_state.body_weight_map = parsed_bw_map
+                    if parsed_bw_map: st.toast(f"Updated body weight for {len(parsed_bw_map)} animals.", icon="⚖️")
+
+        with col2_mass:
+            lm_input = ui.render_mass_ui(
+                "Lean Mass", "lm", "Paste two columns: animal_id, lean_mass"
+            )
+            # Parse Lean Mass Data
+            parsed_lm_map, lm_error_msg = processing.parse_mass_data(lm_input, "lean mass")
+            if lm_error_msg:
+                st.error(f"Lean Mass Data Error: {lm_error_msg}")
+                st.session_state.lean_mass_map = {}
+            else:
+                if parsed_lm_map != st.session_state.get('lean_mass_map', {}):
+                    st.session_state.lean_mass_map = parsed_lm_map
+                    if parsed_lm_map: st.toast(f"Updated lean mass for {len(parsed_lm_map)} animals.", icon="💪")
+
+    # --- Sanity Check: Display parsed mass maps ---
+    with st.expander("See ID Mapping", expanded=False):
+        st.write("Body Weight Map:", st.session_state.get('body_weight_map', {}))
+        st.write("Lean Mass Map:", st.session_state.get('lean_mass_map', {}))
+    # --- End Sanity Check ---
 
     st.markdown("---")
     st.header("Step 2: Generate Results")
+
+    # Add the radio button for normalization mode here
+    st.radio(
+        "Select Normalization Mode",
+        options=["Absolute Values", "Body Weight Normalized", "Lean Mass Normalized"],
+        key="normalization_mode",
+        horizontal=True,
+        # Add a callback to clear results if normalization mode changes
+        on_change=lambda: st.session_state.update(analysis_triggered=False)
+    )
 
     if st.button("Process & Analyze Data", type="primary"):
         st.session_state.analysis_triggered = True
 
     if st.session_state.get('analysis_triggered', False):
+        # ... (gathering params is the same) ...
         selected_param = st.session_state.get("selected_parameter")
         time_window_option = st.session_state.get("time_window_option")
         light_start, light_end = st.session_state.get("light_start"), st.session_state.get("light_end")
@@ -115,6 +154,7 @@ def main():
         if selected_param and selected_param in st.session_state.parsed_data:
             df_processed = None 
             with st.spinner(f"Processing data for {selected_param}..."):
+                # ... (the processing pipeline is the same until normalization) ...
                 base_df = st.session_state.parsed_data[selected_param].copy()
                 is_cumulative = 'ACC' in selected_param.upper()
                 if is_cumulative: base_df = processing.calculate_interval_data(base_df)
@@ -123,16 +163,29 @@ def main():
                 df_flagged = processing.flag_outliers(df_annotated, sd_threshold)
                 df_processed = processing.add_group_info(df_flagged, st.session_state.get('group_assignments', {}))
                 
+            # --- MAJOR CHANGE: Pass BOTH maps to the updated function ---
             normalization_mode = st.session_state.get("normalization_mode", "Absolute Values")
             df_normalized, missing_ids, norm_error = processing.apply_normalization(
-                df_processed, normalization_mode, st.session_state.get('lean_mass_map', {})
+                df_processed, 
+                normalization_mode, 
+                st.session_state.get('body_weight_map', {}),
+                st.session_state.get('lean_mass_map', {})
             )
+            # --- END OF MAJOR CHANGE ---
 
             if norm_error: st.warning(norm_error, icon="⚠️")
-            if missing_ids: st.warning(f"Lean mass data not found for the following animals, which were excluded from normalization: {', '.join(missing_ids)}", icon="⚠️")
+            if missing_ids: 
+                # Be more specific in the warning
+                mass_type = "mass"
+                if "Body Weight" in normalization_mode: mass_type = "body weight"
+                if "Lean Mass" in normalization_mode: mass_type = "lean mass"
+                st.warning(f"No {mass_type} data found for the following animals, which were excluded from normalization: {', '.join(map(str, missing_ids))}", icon="⚠️")
 
+
+            # --- The rest of the file (results display) remains the same ---
             if not df_normalized.empty:
                 st.header("Analysis Results")
+                # REMOVED the radio button from here, as it's now at the top
                 st.session_state.summary_df_animal = processing.calculate_summary_stats_per_animal(df_normalized)
                 key_metrics = processing.calculate_key_metrics(df_normalized)
                 group_summary_df = processing.calculate_summary_stats_per_group(df_normalized)
