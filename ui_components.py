@@ -5,48 +5,73 @@ import pandas as pd
 import processing
 
 def load_and_parse_files(uploaded_files):
-    """Parses all uploaded files and returns data, options, and animal IDs."""
+    """
+    Parses all uploaded files. Silently ignores non-data files and reports
+    on files that look like data but fail to parse.
+    """
     parsed_data = {}
     param_options = []
     all_animal_ids = set()
-    errors_found = False # <-- New flag to track if we should halt
+    files_with_parsing_errors = [] # To store names of files that failed after a successful header parse
 
     for file in uploaded_files:
         try:
+            # First-pass filter: Only attempt to read CSV files.
+            if not file.name.lower().endswith('.csv'):
+                continue # Silently skip non-csv files like .PDTA, .ELOG, etc.
+
             file_content = file.getvalue().decode('utf-8', errors='ignore')
             lines = file_content.splitlines()
         except Exception as e:
-            st.error(f"Fatal Error: Could not read file **{file.name}**. Error: {e}")
-            errors_found = True
-            continue # Skip to the next file
-        
+            # This is a file-read error, worth mentioning.
+            files_with_parsing_errors.append(f"{file.name} (could not be read: {e})")
+            continue
+
+        # Step 1: Attempt to parse the header.
         parameter, animal_ids_map, data_start_line = processing.parse_clams_header(lines)
 
-        # --- START: THIS IS THE CRITICAL NEW LOGIC ---
-        if parameter is None or data_start_line == -1:
-            # parse_clams_header already prints its own specific st.error, so we
-            # just add context and halt further processing for this file.
-            st.warning(f"Skipping file **{file.name}** due to a header parsing error. Check that it is a valid, unmodified CLAMS file.")
-            errors_found = True
+        # Condition for silent ignore: If a file doesn't have the :DATA marker,
+        # it's not a CLAMS data file we're interested in. Just skip it.
+        if data_start_line == -1:
             continue
-        # --- END: CRITICAL NEW LOGIC ---
 
-        if parameter not in param_options:
-            param_options.append(parameter)
+        # Condition for a warning: If it has :DATA but no parameter, it's malformed.
+        if parameter is None:
+            files_with_parsing_errors.append(f"{file.name} (has a ':DATA' marker but no 'Paramter' line was found)")
+            continue
         
+        # If we got this far, the header is valid. Now parse the data table.
         df_tidy = processing.parse_clams_data(lines, data_start_line, animal_ids_map)
         
         if df_tidy is not None and not df_tidy.empty:
+            if parameter not in param_options:
+                param_options.append(parameter)
             parsed_data[parameter] = df_tidy
             all_animal_ids.update(df_tidy['animal_id'].unique())
         else:
-            # This catches failures in the data section parsing
-            st.error(f"Failed to extract data from **{file.name}** for parameter '{parameter}'. The file may be corrupt or formatted incorrectly after the ':DATA' marker.")
-            errors_found = True
+            # This file had a valid header but its data section failed to parse. This is a legitimate issue to report.
+            files_with_parsing_errors.append(f"{file.name} (header was OK, but data table could not be parsed)")
 
-    # If any error was found, we should not proceed with a potentially incomplete dataset
-    if errors_found:
-        st.stop() # Halts the script to ensure user sees the errors.
+    # --- Sanity Check: Report on files that failed parsing ---
+    if files_with_parsing_errors:
+        st.warning(
+            "Some files looked like data but were skipped due to formatting errors:",
+            icon="⚠️"
+        )
+        with st.expander("Click to see details on skipped files"):
+            for failed_file in files_with_parsing_errors:
+                st.caption(f"- {failed_file}")
+    # --- End Sanity Check ---
+
+    # After attempting to parse all files, check if we found anything usable.
+    if not parsed_data:
+        st.error(
+            "Upload Error: We couldn't find any valid CLAMS data in the uploaded files. "
+            "Please ensure you've uploaded the correct parameter CSV files (e.g., VO2.csv, RER.csv) "
+            "and that they have not been modified.",
+            icon="🚨"
+        )
+        st.stop() # Halt the script if no data was loaded at all.
 
     return parsed_data, sorted(param_options), sorted(list(all_animal_ids))
 

@@ -59,9 +59,9 @@ def parse_clams_header(lines):
                     # Always reset to avoid carrying over a bad value
                     current_cage_num_str = None
 
-    # --- FIX 2: Add guard clause to ensure :DATA was found ---
+    # If the :DATA marker was never found, this is not a data file.
+    # Return silently; the calling function will handle skipping it.
     if data_start_line == -1:
-        st.error("Fatal Error: The ':DATA' marker was not found in one of the files. Cannot proceed with parsing.")
         return None, None, -1
 
     return parameter, animal_ids, data_start_line
