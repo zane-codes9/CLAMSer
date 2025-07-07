@@ -1,5 +1,4 @@
 # app.py
-
 import streamlit as st
 import pandas as pd
 import ui_components as ui
@@ -22,8 +21,9 @@ def main():
             accept_multiple_files=True,
             type=['csv', 'txt'],
             key="main_file_uploader",
+            # --- CHANGE 1: Reset the new 'run_analysis' flag on new file upload ---
             on_change=lambda: st.session_state.update(
-                analysis_triggered=False, data_loaded=False, lean_mass_map={}
+                run_analysis=False, data_loaded=False, body_weight_map={}, lean_mass_map={}
             )
         )
         st.markdown("---")
@@ -39,14 +39,14 @@ def main():
                 "Standard Deviation Threshold",
                 min_value=0.0,
                 max_value=10.0,
-                value=3.0,
+                value=st.session_state.get("sd_threshold", 3.0), # Persist value
                 step=0.5,
                 key="sd_threshold",
                 help="Set to 0 to disable outlier flagging."
             )
 
             st.markdown("---")
-            with st.expander("Project Information, Methodology & Credits", expanded=False): # Renamed for clarity
+            with st.expander("Project Information, Methodology & Credits", expanded=False):
                 st.markdown(
                     """
                     **CLAMSer** is an open-source tool designed to accelerate the initial analysis of metabolic data from Columbus Instruments Oxymax CLAMS systems.
@@ -84,27 +84,24 @@ def main():
         if 'num_groups' not in st.session_state: st.session_state.num_groups = 1
         st.rerun()
 
-    st.header("Analysis Workspace")
+    st.header("Workspace")
 
-    # --- MAJOR CHANGE: Use the new generic UI components ---
-    with st.expander("Step 1: Setup Groups & Mass Data", expanded=True):
+    with st.expander("Setup Groups & Mass Data", expanded=True):
         ui.render_group_assignment_ui(st.session_state.animal_ids)
         st.markdown("---")
         
-        # Create two columns for a cleaner layout
         col1_mass, col2_mass = st.columns(2)
 
         with col1_mass:
             bw_input = ui.render_mass_ui(
                 "Body Weight", "bw", "Paste two columns: animal_id, body_weight"
             )
-            # Parse Body Weight Data
             parsed_bw_map, bw_error_msg = processing.parse_mass_data(bw_input, "body weight")
             if bw_error_msg:
                 st.error(f"Body Weight Data Error: {bw_error_msg}")
                 st.session_state.body_weight_map = {}
             else:
-                if parsed_bw_map != st.session_state.get('body_weight_map', {}):
+                if parsed_bw_map is not None and parsed_bw_map != st.session_state.get('body_weight_map', {}):
                     st.session_state.body_weight_map = parsed_bw_map
                     if parsed_bw_map: st.toast(f"Updated body weight for {len(parsed_bw_map)} animals.", icon="⚖️")
 
@@ -112,49 +109,53 @@ def main():
             lm_input = ui.render_mass_ui(
                 "Lean Mass", "lm", "Paste two columns: animal_id, lean_mass"
             )
-            # Parse Lean Mass Data
             parsed_lm_map, lm_error_msg = processing.parse_mass_data(lm_input, "lean mass")
             if lm_error_msg:
                 st.error(f"Lean Mass Data Error: {lm_error_msg}")
                 st.session_state.lean_mass_map = {}
             else:
-                if parsed_lm_map != st.session_state.get('lean_mass_map', {}):
+                if parsed_lm_map is not None and parsed_lm_map != st.session_state.get('lean_mass_map', {}):
                     st.session_state.lean_mass_map = parsed_lm_map
                     if parsed_lm_map: st.toast(f"Updated lean mass for {len(parsed_lm_map)} animals.", icon="💪")
 
-    # --- Sanity Check: Display parsed mass maps ---
     with st.expander("See ID Mapping", expanded=False):
         st.write("Body Weight Map:", st.session_state.get('body_weight_map', {}))
         st.write("Lean Mass Map:", st.session_state.get('lean_mass_map', {}))
-    # --- End Sanity Check ---
 
     st.markdown("---")
-    st.header("Step 2: Generate Results")
+    st.header("Results")
 
-    # Add the radio button for normalization mode here
+    # --- CHANGE 2: The normalization radio button no longer needs an on_change callback. ---
+    # Its value is simply read during each rerun of the script.
     st.radio(
         "Select Normalization Mode",
         options=["Absolute Values", "Body Weight Normalized", "Lean Mass Normalized"],
         key="normalization_mode",
         horizontal=True,
-        # Add a callback to clear results if normalization mode changes
-        on_change=lambda: st.session_state.update(analysis_triggered=False)
     )
 
     if st.button("Process & Analyze Data", type="primary"):
-        st.session_state.analysis_triggered = True
+        # --- CHANGE 3: The button now sets the 'run_analysis' flag to True. ---
+        st.session_state.run_analysis = True
 
-    if st.session_state.get('analysis_triggered', False):
-        # ... (gathering params is the same) ...
+    # --- CHANGE 4: The entire results section is now gated by the 'run_analysis' flag. ---
+    # After the button is pressed once, this block will re-execute on *any* widget change,
+    # making the dashboard fully reactive.
+    if st.session_state.get('run_analysis', False):
+        
+        # --- Sanity Check: Confirm which normalization mode is being used for the current run ---
+        st.sidebar.info(f"Analysis running with mode: **{st.session_state.get('normalization_mode')}**")
+        # --- End Sanity Check ---
+
         selected_param = st.session_state.get("selected_parameter")
         time_window_option = st.session_state.get("time_window_option")
         light_start, light_end = st.session_state.get("light_start"), st.session_state.get("light_end")
         sd_threshold = st.session_state.get("sd_threshold")
-
+        
+        # Check if parameter exists before proceeding
         if selected_param and selected_param in st.session_state.parsed_data:
-            df_processed = None 
+            df_processed = None
             with st.spinner(f"Processing data for {selected_param}..."):
-                # ... (the processing pipeline is the same until normalization) ...
                 base_df = st.session_state.parsed_data[selected_param].copy()
                 is_cumulative = 'ACC' in selected_param.upper()
                 if is_cumulative: base_df = processing.calculate_interval_data(base_df)
@@ -162,8 +163,7 @@ def main():
                 df_annotated = processing.add_light_dark_cycle_info(df_filtered, light_start, light_end)
                 df_flagged = processing.flag_outliers(df_annotated, sd_threshold)
                 df_processed = processing.add_group_info(df_flagged, st.session_state.get('group_assignments', {}))
-                
-            # --- MAJOR CHANGE: Pass BOTH maps to the updated function ---
+            
             normalization_mode = st.session_state.get("normalization_mode", "Absolute Values")
             df_normalized, missing_ids, norm_error = processing.apply_normalization(
                 df_processed, 
@@ -171,21 +171,16 @@ def main():
                 st.session_state.get('body_weight_map', {}),
                 st.session_state.get('lean_mass_map', {})
             )
-            # --- END OF MAJOR CHANGE ---
 
             if norm_error: st.warning(norm_error, icon="⚠️")
             if missing_ids: 
-                # Be more specific in the warning
                 mass_type = "mass"
                 if "Body Weight" in normalization_mode: mass_type = "body weight"
                 if "Lean Mass" in normalization_mode: mass_type = "lean mass"
                 st.warning(f"No {mass_type} data found for the following animals, which were excluded from normalization: {', '.join(map(str, missing_ids))}", icon="⚠️")
 
-
-            # --- The rest of the file (results display) remains the same ---
             if not df_normalized.empty:
                 st.header("Analysis Results")
-                # REMOVED the radio button from here, as it's now at the top
                 st.session_state.summary_df_animal = processing.calculate_summary_stats_per_animal(df_normalized)
                 key_metrics = processing.calculate_key_metrics(df_normalized)
                 group_summary_df = processing.calculate_summary_stats_per_group(df_normalized)
@@ -195,6 +190,7 @@ def main():
                 with col1: st.metric(label="Overall Average", value=key_metrics['Overall Average'])
                 with col2: st.metric(label="Light Period Average", value=key_metrics['Light Average'])
                 with col3: st.metric(label="Dark Period Average", value=key_metrics['Dark Average'])
+                
                 st.markdown("---")
                 st.subheader(f"Group Averages for {selected_param}")
                 bar_chart_fig = plotting.create_summary_bar_chart(group_summary_df, selected_param)
@@ -202,7 +198,6 @@ def main():
 
                 st.markdown("---")
                 st.subheader("Interactive Timeline Display Options")
-
                 available_groups = sorted(df_normalized['group'].unique())
                 selected_groups = st.multiselect(
                     "Select groups to display on the timeline:",
@@ -210,7 +205,6 @@ def main():
                     default=available_groups,
                     key="group_filter_multiselect"
                 )
-
                 df_for_timeline = df_normalized[df_normalized['group'].isin(selected_groups)]
                 
                 st.subheader(f"Interactive Timeline for {selected_param}")
@@ -224,14 +218,10 @@ def main():
                 st.subheader("Summary Data Table (per Animal)")
                 st.dataframe(st.session_state.summary_df_animal, use_container_width=True)
 
-                # --- START: NEW EXPORT SECTION ---
                 st.markdown("---")
-                st.subheader("Step 3: Export Results")
-
+                st.subheader("Export")
                 col1_exp, col2_exp = st.columns(2)
-
                 with col1_exp:
-                    # Check if the summary DataFrame exists and is not empty
                     if 'summary_df_animal' in st.session_state and not st.session_state.summary_df_animal.empty:
                         st.download_button(
                            label="📥 Export Summary Data (.csv)",
@@ -244,7 +234,6 @@ def main():
                         st.caption("Contains the final Light/Dark/Total averages for each animal.")
 
                 with col2_exp:
-                     # Check if the processed DataFrame exists and is not empty
                     if not df_normalized.empty:
                         st.download_button(
                             label="🔬 Download Raw Data for Validation (.csv)",
@@ -255,12 +244,15 @@ def main():
                             help="Downloads the full, point-by-point dataset used for all calculations."
                         )
                         st.caption("Ideal for manual validation in Excel or Prism.")
-                # --- END: NEW EXPORT SECTION ---
 
             else:
                 st.warning("No data remains to be displayed after processing and normalization.", icon="💡")
         else:
-            st.info("Click 'Process & Analyze Data' to generate results.")
+            # This message now correctly shows if the selected parameter is invalid
+            st.error(f"Parameter '{selected_param}' not found in the loaded data. Please select a valid parameter from the list.")
+    else:
+        # Initial state message
+        st.info("Once groups are selected, click 'Process & Analyze Data' to generate results.")
 
 if __name__ == "__main__":
     main()
