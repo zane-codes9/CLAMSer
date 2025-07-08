@@ -11,6 +11,14 @@ def create_timeline_chart(df, light_start, light_end, parameter_name):
     Generates an interactive Plotly timeline chart.
     Draws a continuous line PER ANIMAL, then overlays markers for outliers.
     """
+    # --- Sanity Check: Incoming Data for Plotting ---
+    if 'animal_id' in df.columns:
+        animal_ids_in_df = df['animal_id'].unique()
+        st.sidebar.caption(f"DEBUG: Plotting data for {len(animal_ids_in_df)} animals.")
+    else:
+        st.sidebar.warning("DEBUG: 'animal_id' column not found in dataframe sent to plot.")
+    # --- End Sanity Check ---
+    
     if df.empty:
         fig = px.line(title=f"No data available for {parameter_name}")
         fig.update_layout(xaxis_title="Date and Time", yaxis_title=parameter_name)
@@ -21,19 +29,42 @@ def create_timeline_chart(df, light_start, light_end, parameter_name):
         if col not in df.columns:
             df[col] = 'Unassigned' if col != 'is_outlier' else False
     
-    # --- START OF FIX for the spiderweb effect
+    # --- THE ULTIMATE FIX ---
+    # Sort by animal ID FIRST, then by timestamp. This ensures data for each animal
+    # is a contiguous, chronologically ordered block for Plotly to draw.
+    df = df.sort_values(by=['animal_id', 'timestamp'])
+
+    # --- Sanity Check: Data order before plotting ---
+    # This will show us if the data is correctly blocked by animal_id.
+    st.sidebar.write("DEBUG: First 10 rows of data sent to plot (should be sorted by animal_id):")
+    st.sidebar.dataframe(df[['animal_id', 'timestamp', 'value']].head(10))
+    # --- End Sanity Check ---
+
+    # `line_group='animal_id'` tells Plotly to draw a separate line for each animal.
+    # `color='group'` tells Plotly to color those lines based on the group they belong to.
     fig = px.line(
         df,
         x='timestamp',
         y='value',
         color='group',
-        line_group='animal_id',  
+        line_group='animal_id', # This was correct, but needed the sort fix above
+        title=f"Timeline for {parameter_name}",
+        labels={"timestamp": "Date and Time", "value": parameter_name, "group": "Group"},
+        hover_data={'animal_id': True, 'timestamp': '|%Y-%m-%d %H:%M', 'value': ':.2f'}
+    )
+    
+    # `color='group'` tells Plotly to color those lines based on the group they belong to.
+    fig = px.line(
+        df,
+        x='timestamp',
+        y='value',
+        color='group',
+        line_group='animal_id', # THE CRITICAL FIX
         title=f"Timeline for {parameter_name}",
         labels={"timestamp": "Date and Time", "value": parameter_name, "group": "Group"},
         # Add animal_id to hover data for clarity
         hover_data={'animal_id': True, 'timestamp': '|%Y-%m-%d %H:%M', 'value': ':.2f'}
     )
-    # --- END OF FIX ---
     
     fig.update_traces(line=dict(width=1.5))
 
@@ -88,7 +119,6 @@ def create_timeline_chart(df, light_start, light_end, parameter_name):
 
     fig.update_layout(xaxis_title="Date and Time", yaxis_title=parameter_name, legend_title="Group")
     return fig
-
 
 def create_summary_bar_chart(df, parameter_name):
     """
