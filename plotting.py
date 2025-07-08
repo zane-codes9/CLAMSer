@@ -91,7 +91,7 @@ def create_timeline_chart(df, light_start, light_end, parameter_name):
             ]
         ))
 
-    # Add shaded regions for the dark cycle (with corrected logic for inverted cycles)
+    # Add dshaded regions for the dark cycle (with corrected logic for inverted cycles)
     min_date = df['timestamp'].min().date()
     max_date = df['timestamp'].max().date()
     current_date = min_date
