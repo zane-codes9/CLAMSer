@@ -142,10 +142,36 @@ def main():
     # After the button is pressed once, this block will re-execute on *any* widget change,
     # making the dashboard fully reactive.
     if st.session_state.get('run_analysis', False):
+
+        selected_param = st.session_state.get("selected_parameter")
+        time_window_option = st.session_state.get("time_window_option")
+        light_start, light_end = st.session_state.get("light_start"), st.session_state.get("light_end")
+        sd_threshold = st.session_state.get("sd_threshold")
         
-        # --- Sanity Check: Confirm which normalization mode is being used for the current run ---
-        st.sidebar.info(f"Analysis running with mode: **{st.session_state.get('normalization_mode')}**")
-        # --- End Sanity Check ---
+        # Check if parameter exists before proceeding
+        if selected_param and selected_param in st.session_state.parsed_data:
+            df_processed = None
+            with st.spinner(f"Processing data for {selected_param}..."):
+                base_df = st.session_state.parsed_data[selected_param].copy()
+                is_cumulative = 'ACC' in selected_param.upper()
+                if is_cumulative: base_df = processing.calculate_interval_data(base_df)
+                df_filtered = processing.filter_data_by_time(base_df, time_window_option, st.session_state.get("custom_start"), st.session_state.get("custom_end"))
+                df_annotated = processing.add_light_dark_cycle_info(df_filtered, light_start, light_end)
+                df_flagged = processing.flag_outliers(df_annotated, sd_threshold)
+                df_processed = processing.add_group_info(df_flagged, st.session_state.get('group_assignments', {}))
+            
+            normalization_mode = st.session_state.get("normalization_mode", "Absolute Values")
+            
+            # --- NEW: Refined user feedback message ---
+            st.success(f"Displaying results for **{selected_param}** with **{normalization_mode}**.")
+            # --- End NEW ---
+
+            df_normalized, missing_ids, norm_error = processing.apply_normalization(
+                df_processed, 
+                normalization_mode, 
+                st.session_state.get('body_weight_map', {}),
+                st.session_state.get('lean_mass_map', {})
+            )
 
         selected_param = st.session_state.get("selected_parameter")
         time_window_option = st.session_state.get("time_window_option")

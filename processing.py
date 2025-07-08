@@ -198,17 +198,17 @@ def parse_mass_data(mass_input, mass_type_name: str):
 
 def filter_data_by_time(df, time_window_option, custom_start, custom_end):
     """Filters the dataframe based on the selected time window."""
-    if not isinstance(df, pd.DataFrame) or 'timestamp' not in df.columns:
+    if not isinstance(df, pd.DataFrame) or 'timestamp' not in df.columns or df.empty:
         return pd.DataFrame() 
     
     df_copy = df.copy()
 
-    if time_window_option == "Entire Dataset":
-        return df_copy
-
     if not pd.api.types.is_datetime64_any_dtype(df_copy['timestamp']):
          df_copy['timestamp'] = pd.to_datetime(df_copy['timestamp'], errors='coerce')
          df_copy.dropna(subset=['timestamp'], inplace=True)
+
+    if time_window_option == "Entire Dataset":
+        return df_copy
 
     duration_map = {
         "Last 24 Hours": timedelta(hours=24),
@@ -217,24 +217,27 @@ def filter_data_by_time(df, time_window_option, custom_start, custom_end):
     }
 
     if time_window_option in duration_map:
-        if df_copy.empty: return df_copy
         max_time = df_copy['timestamp'].max()
         cutoff_time = max_time - duration_map[time_window_option]
         return df_copy[df_copy['timestamp'] >= cutoff_time]
         
-    # --- START: REVISED LOGIC FOR CUSTOM TIME WINDOW ---
     elif time_window_option == "Custom...":
-        if df_copy.empty or custom_start is None or custom_end is None: return df_copy
+        if custom_start is None or custom_end is None or custom_start >= custom_end:
+            # Add a user-facing warning for invalid custom range.
+            st.warning("For 'Custom' time window, please ensure 'Analysis End' is greater than 'Analysis Start'.", icon="⚠️")
+            return pd.DataFrame() # Return an empty frame to prevent downstream errors
+
+        # --- NEW LOGIC: Filter by hours from the start of the experiment ---
+        t_zero = df_copy['timestamp'].min()
+        df_copy['elapsed_hours'] = (df_copy['timestamp'] - t_zero).dt.total_seconds() / 3600
         
-        # Filter based on the HOUR OF THE DAY, not hours from start
-        hour_of_day = df_copy['timestamp'].dt.hour
-        if custom_start <= custom_end:
-            # Standard case (e.g., filter from hour 8 to 17)
-            return df_copy[(hour_of_day >= custom_start) & (hour_of_day < custom_end)]
-        else:
-            # Inverted case (e.g., filter from hour 19 to 7 the next day)
-            return df_copy[(hour_of_day >= custom_start) | (hour_of_day < custom_end)]
-    # --- END: REVISED LOGIC ---
+        filtered_df = df_copy[
+            (df_copy['elapsed_hours'] >= custom_start) & 
+            (df_copy['elapsed_hours'] <= custom_end)
+        ].copy()
+
+        # Drop the temporary column before returning
+        return filtered_df.drop(columns=['elapsed_hours'])
         
     return df_copy
 

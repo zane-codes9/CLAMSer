@@ -87,11 +87,25 @@ def render_analysis_controls(param_options):
     )
     custom_start, custom_end = None, None
     if time_window_option == "Custom...":
-        st.caption("Filter data to a specific time of day (24-hr format).") # Add clarification
+        st.caption("Define a precise analysis window based on hours from the start of the experiment.")
+        st.caption("Example: To skip the first 24h of acclimation in a 72h run, set Start to `24` and End to `72`.")
         col1, col2 = st.columns(2)
-        # --- CHANGE LABELS FOR CLARITY ---
-        with col1: custom_start = st.number_input("Start Hour", min_value=0, max_value=23, step=1, key="custom_start")
-        with col2: custom_end = st.number_input("End Hour", min_value=0, max_value=23, step=1, key="custom_end")
+        with col1:
+            custom_start = st.number_input(
+                "Analysis Start (hours from exp. start)", 
+                min_value=0.0, 
+                value=0.0, 
+                step=1.0, 
+                key="custom_start"
+            )
+        with col2:
+            custom_end = st.number_input(
+                "Analysis End (hours from exp. start)", 
+                min_value=0.0, 
+                value=72.0, 
+                step=1.0, 
+                key="custom_end"
+            )
     
     st.markdown("---")
     st.subheader("Light/Dark Cycle")
@@ -152,7 +166,8 @@ def render_group_assignment_ui(all_animal_ids):
     Renders a live, reactive UI for group assignment.
     Changes are captured instantly via callbacks, no 'Update' button needed.
     """
-    st.subheader("A. Group Assignment")
+    st.subheader("Assign Animals to Experimental Groups")
+    st.caption("Define your groups below. Animals not assigned to any group will be labeled 'Unassigned'.")
 
     if 'num_groups' not in st.session_state: st.session_state.num_groups = 1
     if 'group_assignments' not in st.session_state: st.session_state.group_assignments = {}
@@ -216,6 +231,7 @@ def render_mass_ui(mass_type_label: str, key_prefix: str, help_text: str):
         help_text (str): Specific help text for the user.
     """
     st.subheader(f"{mass_type_label} Input (Optional)")
+    st.caption(f"Provide {mass_type_label.lower()} data by either uploading a CSV file or pasting values directly.")
     
     # Use unique keys for each instance of this UI component
     radio_key = f"{key_prefix}_input_method"
