@@ -123,10 +123,36 @@ def render_analysis_controls(param_options):
     }
 
 def render_main_view():
-    """Renders the initial welcome/instruction view."""
-    st.title("Welcome to CLAMSer v1.0")
-    st.markdown("A tool for the rapid analysis and visualization of metabolic data.")
-    st.subheader("Designed for data from Columbus Instruments Oxymax-CLAMS systems.")
+    """
+    Renders the initial welcome view, outlining the three-step workflow.
+    This new view sets the user's expectation of the app's simplicity and process.
+    """
+    st.title("CLAMSer v1.0: Your Analysis in Three Simple Steps")
+    st.markdown("---")
+
+    # --- Step 1 Description ---
+    st.header("Step 1: Setup Groups & Mass Data")
+    st.caption(
+        "After uploading your raw CSV files in the sidebar, this section will appear. "
+        "Here you will define your experimental groups and, optionally, provide body weight or lean mass values for normalization."
+    )
+    st.markdown("---")
+
+    # --- Step 2 Description ---
+    st.header("Step 2: Process & Review Results")
+    st.caption(
+        "After your setup is complete, you will click the main 'Process' button. "
+        "This will generate interactive charts, key metrics, and summary data tables for your review."
+    )
+    st.markdown("---")
+
+    # --- Step 3 Description ---
+    st.header("Step 3: Export Your Results")
+    st.caption(
+        "Once the results are generated, you can download your clean, aggregated summary data as a CSV file. "
+        "This file is formatted for direct use in Prism, SPSS, or your preferred statistical software."
+    )
+    st.markdown("---")
     st.info("To begin, please upload your CLAMS data files using the sidebar uploader.", icon="👈")
 
 def _update_group_assignments_callback():
@@ -246,7 +272,7 @@ def render_mass_ui(mass_type_label: str, key_prefix: str, help_text: str):
     )
 
     if st.session_state[radio_key] == "File Upload":
-        st.file_uploader(f"Upload {mass_type_label} CSV", type=['csv', 'txt'], key=uploader_key)
+        st.file_uploader(f"Upload {mass_type_label} CSV", type=['csv'], key=uploader_key)
         st.caption(f"Format: Two columns (`animal_id,{key_prefix}_mass`) with no header.")
         st.code(f"456,25.3\n457,24.1", language="text") # Example with a different value
         return st.session_state.get(uploader_key)
