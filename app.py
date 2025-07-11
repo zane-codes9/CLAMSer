@@ -21,9 +21,13 @@ def main():
             accept_multiple_files=True,
             type=['csv', 'txt'],
             key="main_file_uploader",
-            # --- CHANGE 1: Reset the new 'run_analysis' flag on new file upload ---
+            # --- Reset flags on new file upload ---
             on_change=lambda: st.session_state.update(
-                run_analysis=False, data_loaded=False, body_weight_map={}, lean_mass_map={}
+                run_analysis=False, 
+                data_loaded=False, 
+                body_weight_map={}, 
+                lean_mass_map={},
+                setup_locked=False
             )
         )
         st.markdown("---")
@@ -78,71 +82,75 @@ def main():
              st.session_state.param_options,
              st.session_state.animal_ids) = ui.load_and_parse_files(uploaded_files)
         st.session_state.data_loaded = True
+        st.session_state.setup_locked = False # Explicitly initialize our new flag
         if not st.session_state.param_options and uploaded_files:
             st.error("Upload Error: We couldn't find any valid CLAMS parameters in the uploaded files. Please check that the files are correctly formatted and contain a ':DATA' marker.")
         if 'group_assignments' not in st.session_state: st.session_state.group_assignments = {}
         if 'num_groups' not in st.session_state: st.session_state.num_groups = 1
         st.rerun()
 
-    st.header("Workspace")
+    # --- PHASE 1 or 2: Conditional UI for Setup vs. Analysis ---
+    if not st.session_state.get('setup_locked', False):
+        # --- RENDER SETUP UI ---
+        st.header("Workspace: Setup")
+        with st.expander("Setup Groups & Mass Data", expanded=True):
+            ui.render_group_assignment_ui(st.session_state.animal_ids)
+            st.markdown("---")
+            
+            col1_mass, col2_mass = st.columns(2)
 
-    with st.expander("Setup Groups & Mass Data", expanded=True):
-        ui.render_group_assignment_ui(st.session_state.animal_ids)
-        st.markdown("---")
-        
-        col1_mass, col2_mass = st.columns(2)
-
-        with col1_mass:
-            bw_input = ui.render_mass_ui(
-                "Body Weight", "bw", "Paste two columns: animal_id, body_weight"
-            )
-            parsed_bw_map, bw_error_msg = processing.parse_mass_data(bw_input, "body weight")
-            if bw_error_msg:
-                st.error(f"Body Weight Data Error: {bw_error_msg}")
-                st.session_state.body_weight_map = {}
-            else:
-                if parsed_bw_map is not None and parsed_bw_map != st.session_state.get('body_weight_map', {}):
+            with col1_mass:
+                bw_input = ui.render_mass_ui("Body Weight", "bw", "Paste two columns: animal_id, body_weight")
+                parsed_bw_map, bw_error_msg = processing.parse_mass_data(bw_input, "body weight")
+                if bw_error_msg:
+                    st.error(f"Body Weight Data Error: {bw_error_msg}")
+                    st.session_state.body_weight_map = {}
+                elif parsed_bw_map is not None and parsed_bw_map != st.session_state.get('body_weight_map', {}):
                     st.session_state.body_weight_map = parsed_bw_map
                     if parsed_bw_map: st.toast(f"Updated body weight for {len(parsed_bw_map)} animals.", icon="⚖️")
 
-        with col2_mass:
-            lm_input = ui.render_mass_ui(
-                "Lean Mass", "lm", "Paste two columns: animal_id, lean_mass"
-            )
-            parsed_lm_map, lm_error_msg = processing.parse_mass_data(lm_input, "lean mass")
-            if lm_error_msg:
-                st.error(f"Lean Mass Data Error: {lm_error_msg}")
-                st.session_state.lean_mass_map = {}
-            else:
-                if parsed_lm_map is not None and parsed_lm_map != st.session_state.get('lean_mass_map', {}):
+            with col2_mass:
+                lm_input = ui.render_mass_ui("Lean Mass", "lm", "Paste two columns: animal_id, lean_mass")
+                parsed_lm_map, lm_error_msg = processing.parse_mass_data(lm_input, "lean mass")
+                if lm_error_msg:
+                    st.error(f"Lean Mass Data Error: {lm_error_msg}")
+                    st.session_state.lean_mass_map = {}
+                elif parsed_lm_map is not None and parsed_lm_map != st.session_state.get('lean_mass_map', {}):
                     st.session_state.lean_mass_map = parsed_lm_map
                     if parsed_lm_map: st.toast(f"Updated lean mass for {len(parsed_lm_map)} animals.", icon="💪")
 
-    with st.expander("See ID Mapping", expanded=False):
-        st.write("Body Weight Map:", st.session_state.get('body_weight_map', {}))
-        st.write("Lean Mass Map:", st.session_state.get('lean_mass_map', {}))
+        with st.expander("Confirm Correct ID Mapping", expanded=False):
+            st.write("Body Weight Map:", st.session_state.get('body_weight_map', {}))
+            st.write("Lean Mass Map:", st.session_state.get('lean_mass_map', {}))
 
+        st.markdown("---")
+        
+        # This button now LOCKS the setup and triggers the analysis
+        if st.button("Process & Analyze Data", type="primary"):
+            st.session_state.run_analysis = True
+            st.session_state.setup_locked = True
+            st.rerun() # Force an immediate rerun to lock the UI
+    
+    else:
+        # --- RENDER LOCKED UI ---
+        st.info("Setup Complete. You can now interact with the results below.")
+        st.caption("To re-configure groups or mass data, please upload a new set of files using the sidebar.")
+    
     st.markdown("---")
-    st.header("Results")
 
-    # --- CHANGE 2: The normalization radio button no longer needs an on_change callback. ---
-    # Its value is simply read during each rerun of the script.
-    st.radio(
-        "Select Normalization Mode",
-        options=["Absolute Values", "Body Weight Normalized", "Lean Mass Normalized"],
-        key="normalization_mode",
-        horizontal=True,
-    )
 
-    if st.button("Process & Analyze Data", type="primary"):
-        # --- CHANGE 3: The button now sets the 'run_analysis' flag to True. ---
-        st.session_state.run_analysis = True
-
-    # --- CHANGE 4: The entire results section is now gated by the 'run_analysis' flag. ---
-    # After the button is pressed once, this block will re-execute on *any* widget change,
-    # making the dashboard fully reactive.
+    # --- RESULTS SECTION ---
+    # This section is now only rendered if the analysis has been run at least once.
     if st.session_state.get('run_analysis', False):
+        st.header("Results")
 
+        st.radio(
+            "Select Normalization Mode",
+            options=["Absolute Values", "Body Weight Normalized", "Lean Mass Normalized"],
+            key="normalization_mode",
+            horizontal=True,
+        )
+        
         selected_param = st.session_state.get("selected_parameter")
         time_window_option = st.session_state.get("time_window_option")
         light_start, light_end = st.session_state.get("light_start"), st.session_state.get("light_end")
@@ -173,31 +181,6 @@ def main():
                 st.session_state.get('lean_mass_map', {})
             )
 
-        selected_param = st.session_state.get("selected_parameter")
-        time_window_option = st.session_state.get("time_window_option")
-        light_start, light_end = st.session_state.get("light_start"), st.session_state.get("light_end")
-        sd_threshold = st.session_state.get("sd_threshold")
-        
-        # Check if parameter exists before proceeding
-        if selected_param and selected_param in st.session_state.parsed_data:
-            df_processed = None
-            with st.spinner(f"Processing data for {selected_param}..."):
-                base_df = st.session_state.parsed_data[selected_param].copy()
-                is_cumulative = 'ACC' in selected_param.upper()
-                if is_cumulative: base_df = processing.calculate_interval_data(base_df)
-                df_filtered = processing.filter_data_by_time(base_df, time_window_option, st.session_state.get("custom_start"), st.session_state.get("custom_end"))
-                df_annotated = processing.add_light_dark_cycle_info(df_filtered, light_start, light_end)
-                df_flagged = processing.flag_outliers(df_annotated, sd_threshold)
-                df_processed = processing.add_group_info(df_flagged, st.session_state.get('group_assignments', {}))
-            
-            normalization_mode = st.session_state.get("normalization_mode", "Absolute Values")
-            df_normalized, missing_ids, norm_error = processing.apply_normalization(
-                df_processed, 
-                normalization_mode, 
-                st.session_state.get('body_weight_map', {}),
-                st.session_state.get('lean_mass_map', {})
-            )
-
             if norm_error: st.warning(norm_error, icon="⚠️")
             if missing_ids: 
                 mass_type = "mass"
@@ -206,12 +189,11 @@ def main():
                 st.warning(f"No {mass_type} data found for the following animals, which were excluded from normalization: {', '.join(map(str, missing_ids))}", icon="⚠️")
 
             if not df_normalized.empty:
-                st.header("Analysis Results")
+                st.subheader(f"Key Metrics for {selected_param} ({normalization_mode})")
                 st.session_state.summary_df_animal = processing.calculate_summary_stats_per_animal(df_normalized)
                 key_metrics = processing.calculate_key_metrics(df_normalized)
                 group_summary_df = processing.calculate_summary_stats_per_group(df_normalized)
                 
-                st.subheader(f"Key Metrics for {selected_param} ({normalization_mode})")
                 col1, col2, col3 = st.columns(3)
                 with col1: st.metric(label="Overall Average", value=key_metrics['Overall Average'])
                 with col2: st.metric(label="Light Period Average", value=key_metrics['Light Average'])
@@ -274,11 +256,9 @@ def main():
             else:
                 st.warning("No data remains to be displayed after processing and normalization.", icon="💡")
         else:
-            # This message now correctly shows if the selected parameter is invalid
             st.error(f"Parameter '{selected_param}' not found in the loaded data. Please select a valid parameter from the list.")
-    else:
-        # Initial state message
-        st.info("Once groups are selected, click 'Process & Analyze Data' to generate results.")
-
+    elif not st.session_state.get('setup_locked', False):
+        st.info("Once setup is complete, click 'Process & Analyze Data' to generate results.")
+        
 if __name__ == "__main__":
     main()
