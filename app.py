@@ -11,10 +11,10 @@ import validation_utils
 def main():
     # --- Page & Sidebar Config ---
     st.set_page_config(
-        page_title="CLAMSer v1.0", layout="wide", initial_sidebar_state="expanded"
+        page_title="(Beta) CLAMSer v2.0", layout="wide", initial_sidebar_state="expanded"
     )
     with st.sidebar:
-        st.title("CLAMSer v1.0")
+        st.title("CLAMSer v2.0")
         st.header("File Upload")
         uploaded_files = st.file_uploader(
             "Upload CLAMS Data Files",

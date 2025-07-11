@@ -127,7 +127,7 @@ def render_main_view():
     Renders the initial welcome view, outlining the three-step workflow.
     This new view sets the user's expectation of the app's simplicity and process.
     """
-    st.title("CLAMSer v1.0: Your Analysis in Three Simple Steps")
+    st.title("CLAMSer v2.0: Your Analysis in Three Steps")
     st.markdown("---")
 
     # --- Step 1 Description ---
