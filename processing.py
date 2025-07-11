@@ -344,12 +344,10 @@ def flag_outliers(df, sd_threshold):
 
     df_copy = df.copy()
     # Use transform to calculate per-animal stats and broadcast them back to the original shape
-    # This is much more efficient than a groupby().apply()
     animal_means = df_copy.groupby('animal_id')['value'].transform('mean')
     animal_stds = df_copy.groupby('animal_id')['value'].transform('std')
     
     # Calculate the Z-score for each data point relative to its own animal's stats
-    # Fill NA for std (in case of single-point animals) to avoid division by zero
     z_scores = (df_copy['value'] - animal_means) / animal_stds.fillna(1)
     
     df_copy['is_outlier'] = z_scores.abs() > sd_threshold

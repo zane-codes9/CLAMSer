@@ -175,9 +175,8 @@ def _update_group_assignments_callback():
             # Check for animals already assigned in this new state
             for animal in selected_animals:
                 if animal in all_assigned_in_new_state:
-                    # This is a basic way to handle it; more complex UI could show a warning
                     st.warning(f"Animal '{animal}' cannot be in multiple groups. Reverting some changes.")
-                    # To prevent inconsistent state, we might just return without updating
+                    # To prevent inconsistent state, no update
                     return
             
             new_assignments[group_name] = selected_animals
@@ -218,7 +217,6 @@ def render_group_assignment_ui(all_animal_ids):
             multiselect_key = f"ms_{i}"
             
             # Find the group name corresponding to this column index if it exists
-            # This is complex because dict keys aren't ordered, but for UI it's often stable enough
             current_group_name = ""
             try:
                 current_group_name = list(st.session_state.group_assignments.keys())[i]
@@ -245,7 +243,6 @@ def render_group_assignment_ui(all_animal_ids):
                 key=multiselect_key,
                 on_change=_update_group_assignments_callback
             )
-# --- END OF CHANGE ---
 
 def render_mass_ui(mass_type_label: str, key_prefix: str, help_text: str):
     """

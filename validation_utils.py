@@ -37,7 +37,4 @@ def generate_manual_validation_template(df: pd.DataFrame) -> bytes:
         inplace=True,
     )
 
-    # Using the existing conversion utility to keep things consistent
-    # We assume a function `convert_df_to_csv` exists in processing.
-    # To avoid circular imports, let's duplicate this small function here.
     return validation_df.to_csv(index=False).encode("utf-8")

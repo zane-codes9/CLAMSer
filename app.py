@@ -77,7 +77,7 @@ def main():
                     """
                 )
 
-    # --- CHANGE: This now calls our new, more informative welcome screen ---
+    # --- CHANGE: This now calls informative welcome screen ---
     if not uploaded_files:
         ui.render_main_view()
         return
