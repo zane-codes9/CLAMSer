@@ -7,7 +7,6 @@ import processing
 import plotting
 import validation_utils
 
-
 def main():
     # --- Page & Sidebar Config ---
     st.set_page_config(
@@ -111,6 +110,18 @@ def main():
     if not st.session_state.get('setup_locked', False):
         # --- RENDER SETUP UI ---
         st.header("Step 1: Setup Workspace")
+        
+        # --- DATA OVERVIEW FEATURE ---
+        selected_param_for_overview = st.session_state.get("selected_parameter", st.session_state.param_options[0])
+        overview_df = st.session_state.parsed_data[selected_param_for_overview]
+        if not overview_df.empty:
+            min_ts = overview_df['timestamp'].min()
+            max_ts = overview_df['timestamp'].max()
+            duration = max_ts - min_ts
+            duration_hours = duration.total_seconds() / 3600
+            st.info(f"**Data Overview for '{selected_param_for_overview}':** Found data spanning from **{min_ts.strftime('%Y-%m-%d %H:%M')}** to **{max_ts.strftime('%Y-%m-%d %H:%M')}** (Total Duration: **{duration_hours:.1f} hours**).", icon="ℹ️")
+        # --- END DATA OVERVIEW ---
+
         with st.expander("Assign Experimental Groups", expanded=True):
             ui.render_group_assignment_ui(st.session_state.animal_ids)
         
@@ -161,7 +172,6 @@ def main():
     # --- RESULTS SECTION ---
     if st.session_state.get('run_analysis', False):
         st.header("Step 3: Review Results & Export")
-
         st.radio(
             "Select Normalization Mode",
             options=["Absolute Values", "Body Weight Normalized", "Lean Mass Normalized"],

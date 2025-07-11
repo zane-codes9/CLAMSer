@@ -147,8 +147,9 @@ def parse_clams_data(lines, data_start_line, animal_ids):
     df_tidy.dropna(subset=['timestamp', 'value'], inplace=True)
     
     # --- FIX 2: ROBUST TIMESTAMP PARSING ---
-    # Let pandas infer the format automatically to handle both 24h and AM/PM
-    df_tidy['timestamp'] = pd.to_datetime(df_tidy['timestamp'], errors='coerce')
+    # Explicitly set dayfirst=True to handle dd/mm/yyyy format common in non-US locales.
+    # This prevents misinterpreting dates like '13/09/2024' and solves the "spiderweb" plot issue.
+    df_tidy['timestamp'] = pd.to_datetime(df_tidy['timestamp'], dayfirst=True, errors='coerce')
     df_tidy['value'] = pd.to_numeric(df_tidy['value'], errors='coerce')
     
     df_tidy.dropna(subset=['timestamp', 'value'], inplace=True)
