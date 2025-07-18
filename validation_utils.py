@@ -21,7 +21,7 @@ def generate_manual_validation_template(df: pd.DataFrame) -> bytes:
     if df.empty or not all(
         col in df.columns for col in ["animal_id", "group", "period", "value"]
     ):
-        # Create an empty but correctly formatted dataframe if input is bad
+        # Create an empty but correctly formatted dataframe if input is bad -
         validation_df = pd.DataFrame(columns=["Animal_ID", "Group", "Period", "Value"])
     else:
         validation_df = df[["animal_id", "group", "period", "value", "is_outlier"]].copy()

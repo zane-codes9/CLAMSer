@@ -8,7 +8,7 @@ import plotting
 import validation_utils
 
 def main():
-    # --- Page & Sidebar Config ---
+    # --- Page & Sidebar Config ----
     st.set_page_config(
         page_title=" CLAMSer", layout="wide", initial_sidebar_state="expanded"
     )
