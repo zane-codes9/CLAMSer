@@ -1,4 +1,4 @@
-# CLAMSer: Automated Metabolic Data Analysis
+# CLAMSer: Analysis in Three Steps
 
 [![Status](https://img.shields.io/badge/Status-Beta-orange.svg)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
