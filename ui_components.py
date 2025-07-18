@@ -12,7 +12,7 @@ def load_and_parse_files(uploaded_files):
     parsed_data = {}
     param_options = []
     all_animal_ids = set()
-    files_with_parsing_errors = [] # To store names of files that failed after a successful header parse
+    files_with_parsing_errors = [] 
 
     for file in uploaded_files:
         try:
@@ -30,17 +30,15 @@ def load_and_parse_files(uploaded_files):
         # Step 1: Attempt to parse the header.
         parameter, animal_ids_map, data_start_line = processing.parse_clams_header(lines)
 
-        # Condition for silent ignore: If a file doesn't have the :DATA marker,
-        # it's not a CLAMS data file we're interested in. Just skip it.
         if data_start_line == -1:
             continue
 
-        # Condition for a warning: If it has :DATA but no parameter, it's malformed.
+        # If it has :DATA but no parameter, it's malformed.
         if parameter is None:
             files_with_parsing_errors.append(f"{file.name} (has a ':DATA' marker but no 'Paramter' line was found)")
             continue
         
-        # If we got this far, the header is valid. Now parse the data table.
+        # If we got this far, the header is valid. Now parse data table.
         df_tidy = processing.parse_clams_data(lines, data_start_line, animal_ids_map)
         
         if df_tidy is not None and not df_tidy.empty:
@@ -49,10 +47,9 @@ def load_and_parse_files(uploaded_files):
             parsed_data[parameter] = df_tidy
             all_animal_ids.update(df_tidy['animal_id'].unique())
         else:
-            # This file had a valid header but its data section failed to parse. This is a legitimate issue to report.
+            # This file had a valid header but its data section failed to parse. This is a legitimate issue
             files_with_parsing_errors.append(f"{file.name} (header was OK, but data table could not be parsed)")
 
-    # --- Sanity Check: Report on files that failed parsing ---
     if files_with_parsing_errors:
         st.warning(
             "Some files looked like data but were skipped due to formatting errors:",
@@ -61,9 +58,8 @@ def load_and_parse_files(uploaded_files):
         with st.expander("Click to see details on skipped files"):
             for failed_file in files_with_parsing_errors:
                 st.caption(f"- {failed_file}")
-    # --- End Sanity Check ---
 
-    # After attempting to parse all files, check if we found anything usable.
+
     if not parsed_data:
         st.error(
             "Upload Error: We couldn't find any valid CLAMS data in the uploaded files. "
@@ -164,7 +160,6 @@ def _update_group_assignments_callback():
     new_assignments = {}
     all_assigned_in_new_state = set()
 
-    # First pass to build the new assignment dictionary and check for duplicates
     for i in range(num_groups):
         group_name_key = f"group_name_{i}"
         multiselect_key = f"ms_{i}"
@@ -172,7 +167,6 @@ def _update_group_assignments_callback():
         selected_animals = st.session_state.get(multiselect_key, [])
 
         if group_name:
-            # Check for animals already assigned in this new state
             for animal in selected_animals:
                 if animal in all_assigned_in_new_state:
                     st.warning(f"Animal '{animal}' cannot be in multiple groups. Reverting some changes.")
@@ -202,7 +196,7 @@ def render_group_assignment_ui(all_animal_ids):
         min_value=1,
         step=1,
         key='num_groups',
-        on_change=_update_group_assignments_callback # This will trigger a re-build when number changes
+        on_change=_update_group_assignments_callback 
     )
 
     num_groups = st.session_state.get('num_groups', 1)
@@ -216,7 +210,6 @@ def render_group_assignment_ui(all_animal_ids):
             group_name_key = f"group_name_{i}"
             multiselect_key = f"ms_{i}"
             
-            # Find the group name corresponding to this column index if it exists
             current_group_name = ""
             try:
                 current_group_name = list(st.session_state.group_assignments.keys())[i]
