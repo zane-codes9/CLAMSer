@@ -16,7 +16,7 @@ CLAMSer is an open-source tool for automating metabolic data processing from Col
 (placeholder - flowchart showing CLAMSer flow coming soon)
 ![CLAMSer Workflow GIF](https://github.com/Zane-K/CLAMSer/blob/main/assets/clamser_demo.gif?raw=true)
 
-## Feat
+## Features of CLAMSer
 
 * Upload all your raw `.csv` files at once (batch processing)
 * Analyze entire dataset or use presets for the last 24/48/72 hours, or custom window.
