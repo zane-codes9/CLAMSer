@@ -7,7 +7,7 @@
 
 CLAMSer is an open-source tool for automating metabolic data processing from Columbus Instruments CLAMS systems.
 
-**[➡️ Live Application: clamser.streamlit.app](https://clamser.streamlit.app/)**
+**[➡️ Live Application](https://clamser.streamlit.app/)**
 
 **[▶️ Video Walkthrough](https://www.youtube.com/watch?v=LuBnGmRzcB8)**
 
