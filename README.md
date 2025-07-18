@@ -18,24 +18,28 @@ CLAMSer is an open-source tool for automating metabolic data processing from Col
 
 ## Features of CLAMSer
 
-* Upload all your raw `.csv` files at once (batch processing)
-* Analyze entire dataset or use presets for the last 24/48/72 hours, or custom window.
-* Define experimental groups 
-* Switch results view between **Absolute**, **Body Weight Normalized**, and **Lean Mass Normalized** values.
-* Visualize timeline charts (color-coded by group) and summary bar charts.
-* Download summary CSV files ready for statistical software (SPSS, Jamovi, GraphPad Prism).
+*   Upload all your raw `.csv` files at once (batch processing)
+*   Analyze entire dataset or use presets for the last 24/48/72 hours, or custom window.
+*   Define experimental groups
+*   Switch results view between **Absolute**, **Body Weight Normalized**, and **Lean Mass Normalized** values.
+*   Visualize timeline charts (color-coded by group) and summary bar charts.
+*   Download summary CSV files ready for statistical software (SPSS, Jamovi, GraphPad Prism).
 
-## Cite
+---
 
-This tool is currently under beta-testing. For now, please cite this tool by name (CLAMSer) and link to its hosted location (https://clamser.streamlit.app/). A formal manuscript describing CLAMSer is in preparation.
+## Feedback & Beta Status
 
-## Feedback & Contributing
+CLAMSer is currently in a public beta. We are actively seeking feedback from researchers familiar with metabolic analysis to refine the tool and prioritize future features.
 
-This is a beta release. For questions, bug reports, or feature suggestions, please email me (Zane) at `mkhal061@uottawa.ca` or open an issue on this repo.
+If you have a moment, please provide feedback on the following:
 
-## License
+*   **Workflow Intuition:** Does the `Upload -> Setup -> Process -> Export` workflow make sense for how you typically work? Are there any steps that feel confusing or out of place?
+*   **Core Feature Set:** Does the application address the most critical, time-consuming parts of your initial data processing? Are there any glaring omissions in the core feature set (e.g., a specific normalization method, a key summary statistic)?
+*   **The "Bridge" Concept:** Our goal is to be the "bridge" to your statistical software, not to replace it. Does the exported CSV provide the data in a format that would be immediately useful for you in Prism, R, SPSS, or other?
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+Please send any thoughts, bug reports, or suggestions to Zane Khartabill at `mkhal061@uottawa.ca` or [open an issue](https://github.com/zane-codes9/CLAMSer/issues) on this GitHub repository.
+
+---
 
 ## Local Installation
 
@@ -56,3 +60,11 @@ Here's how to run CLAMSer on your local machine (terminal):
     ```bash
     streamlit run app.py
     ```
+
+## Cite
+
+Please cite this tool by name (CLAMSer) and link to its hosted location (https://clamser.streamlit.app/). A formal manuscript describing CLAMSer is in preparation.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
