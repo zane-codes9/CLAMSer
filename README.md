@@ -31,11 +31,11 @@ CLAMSer is an open-source tool for automating metabolic data processing from Col
 
 CLAMSer is currently in a public beta. We are actively seeking feedback from researchers familiar with metabolic analysis to refine the tool and prioritize future features.
 
-If you have a moment, please provide feedback on the following:
+If you have a moment, please provide feedback on the questions:
 
-*   **Workflow Intuition:** Does the `Upload -> Setup -> Process -> Export` workflow make sense for how you typically work? Are there any steps that feel confusing or out of place?
-*   **Core Feature Set:** Does the application address the most critical, time-consuming parts of your initial data processing? Are there any glaring omissions in the core feature set (e.g., a specific normalization method, a key summary statistic)?
-*   **The "Bridge" Concept:** Our goal is to be the "bridge" to your statistical software, not to replace it. Does the exported CSV provide the data in a format that would be immediately useful for you in Prism, R, SPSS, or other?
+* Does the `Upload -> Setup -> Process -> Export` workflow make sense for how you typically work? Are there any steps that feel confusing/out of place?
+* Does the application address the most critical, time-consuming parts of your initial data processing? Are there any omissions in the core feature set (e.g., a specific normalization method, a key summary statistic)?
+* The goal of CLAMSer is to be a "bridge" to statistical software. Does the exported CSV provide the data in a format that would be immediately useful for you in Prism, R, SPSS, or other?
 
 Please send any thoughts, bug reports, or suggestions to Zane Khartabill at `mkhal061@uottawa.ca` or [open an issue](https://github.com/zane-codes9/CLAMSer/issues) on this GitHub repository.
 
